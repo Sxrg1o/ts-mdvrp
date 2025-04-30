@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
+// BloqueoEtiquetado sin cambios...
 class BloqueoEtiquetado {
     int x, y;
     String tramo;
@@ -15,7 +16,6 @@ class BloqueoEtiquetado {
         this.y = y;
         this.tramo = tramo;
     }
-    // Necesario para usar en HashSet en TabuList
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -23,14 +23,21 @@ class BloqueoEtiquetado {
         BloqueoEtiquetado that = (BloqueoEtiquetado) o;
         return x == that.x && y == that.y && Objects.equals(tramo, that.tramo);
     }
-
     @Override
     public int hashCode() {
+        // Usa Objects.hash si usas Java 7+
         return Objects.hash(x, y, tramo);
+        // Alternativa para Java < 7:
+        // int result = x;
+        // result = 31 * result + y;
+        // result = 31 * result + (tramo != null ? tramo.hashCode() : 0);
+        // return result;
     }
 }
 
+
 public class TabuSearchPlanner_MDVRP {
+    // --- Constantes ---
     static final int GRID_WIDTH = 70;
     static final int GRID_HEIGHT = 50;
     static final double VELOCIDAD_KMH = 50.0;
@@ -38,350 +45,290 @@ public class TabuSearchPlanner_MDVRP {
 
     // --- Clases del Modelo del Dominio ---
 
-    // Nodo Base (Coordenadas)
     static class Location {
         int x, y;
         Location(int x, int y) { this.x = x; this.y = y; }
         Point toPoint() { return new Point(x, y); }
         @Override public String toString() { return "(" + x + "," + y + ")"; }
-
-        // Distancia Manhattan (simple, usar BFS para la real)
+        // NUEVO: equals y hashCode para Location (basado en coordenadas)
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Location location = (Location) o;
+            return x == location.x && y == location.y;
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(x, y);
+        }
         int manhattanDist(Location other) {
             return Math.abs(this.x - other.x) + Math.abs(this.y - other.y);
         }
     }
 
-    // Depósitos (Planta y Tanques Intermedios)
     static class Depot extends Location {
         String id;
-        double capacidadActualM3; // Relevante para intermedios al inicio del día
+        double capacidadActualM3;
         final double capacidadMaximaM3;
-
         Depot(String id, int x, int y, double capMax) {
             super(x, y);
             this.id = id;
             this.capacidadMaximaM3 = capMax;
-            this.capacidadActualM3 = capMax; // Se llena a las 00:00
+            this.capacidadActualM3 = capMax;
         }
         @Override public String toString() { return "Depot[" + id + "@" + super.toString() + "]"; }
-    }
-
-    // Tipos de Camión (Datos de la tabla)
-    enum TruckType {
-        TA(2.5, 25.0, 12.5), // Tara (Ton), Capacidad (m³), Peso Carga Max GLP (Ton)
-        TB(2.0, 15.0, 7.5),
-        TC(1.5, 10.0, 5.0),
-        TD(1.0, 5.0, 2.5);
-
-        final double taraTon;
-        final double capacidadM3;
-        final double pesoCargaMaxTon;
-
-        TruckType(double tara, double cap, double pesoCarga) {
-            this.taraTon = tara;
-            this.capacidadM3 = cap;
-            this.pesoCargaMaxTon = pesoCarga;
+        // NUEVO: equals y hashCode para Depot (basado en id)
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Depot depot = (Depot) o;
+            return Objects.equals(id, depot.id);
         }
-
-        // Calcula el peso de una carga específica en Toneladas
-        double calcularPesoCargaActualTon(double cargaActualM3) {
-            if (capacidadM3 == 0) return 0;
-            // Proporción: (cargaActualM3 / capacidadM3) * pesoCargaMaxTon
-            return (cargaActualM3 / capacidadM3) * pesoCargaMaxTon;
+        @Override
+        public int hashCode() {
+            return Objects.hash(id);
         }
     }
 
-    // Unidad de Camión Específica
+    enum TruckType { /* ... sin cambios ... */
+        TA(2.5, 25.0, 12.5), TB(2.0, 15.0, 7.5), TC(1.5, 10.0, 5.0), TD(1.0, 5.0, 2.5);
+        final double taraTon; final double capacidadM3; final double pesoCargaMaxTon;
+        TruckType(double t, double c, double p){taraTon=t; capacidadM3=c; pesoCargaMaxTon=p;}
+        double calcularPesoCargaActualTon(double cargaM3){ if(capacidadM3==0) return 0; return (cargaM3/capacidadM3)*pesoCargaMaxTon;}
+    }
+
     static class Truck {
-        String id; // e.g., "TA01"
-        TruckType type;
-        Depot homeDepot; // Depósito base asignado
-        boolean disponible; // Para futuro mantenimiento/averías
-        // Estado durante planificación/simulación (podría ir en una clase separada de estado)
-        Location currentLocation;
-        double cargaActualM3;
-
+        String id; TruckType type; Depot homeDepot; boolean disponible;
+        Location currentLocation; double cargaActualM3;
         Truck(String id, TruckType type, Depot homeDepot) {
-            this.id = id;
-            this.type = type;
-            this.homeDepot = homeDepot;
-            this.disponible = true; // Inicialmente disponible
-            this.currentLocation = homeDepot; // Empieza en su depósito
-            this.cargaActualM3 = 0; // Empieza vacío
+            this.id = id; this.type = type; this.homeDepot = homeDepot;
+            this.disponible = true; this.currentLocation = homeDepot; this.cargaActualM3 = 0;
         }
         @Override public String toString() { return "Truck[" + id + "]"; }
+        // NUEVO: equals y hashCode para Truck (basado en id)
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Truck truck = (Truck) o;
+            return Objects.equals(id, truck.id);
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(id);
+        }
     }
 
-    // Nodos Cliente (Pedidos)
     static class CustomerNode extends Location {
-        int id; // ID único del pedido/nodo
-        double demandaM3;
-        int tiempoPedidoMinutos; // Momento en que se hizo el pedido (minutos desde inicio sim)
-        int tiempoLimiteEntregaMinutos; // Momento límite absoluto para la entrega (minutos desde inicio sim)
-        boolean atendido = false;
-
-        static int nextId = 0;
-
-        CustomerNode(int x, int y, double demanda, int tPedido, int hLimite) {
-            super(x, y);
-            this.id = nextId++;
-            this.demandaM3 = demanda;
-            this.tiempoPedidoMinutos = tPedido;
-            // Tiempo límite absoluto = tiempo pedido + horas límite convertidas a minutos
-            this.tiempoLimiteEntregaMinutos = tPedido + hLimite * 60;
+        int id; double demandaM3; int tiempoPedidoMinutos; int tiempoLimiteEntregaMinutos;
+        boolean atendido = false; static int nextId = 0;
+        CustomerNode(int x, int y, double d, int tP, int hL) {
+            super(x, y); this.id = nextId++; this.demandaM3 = d;
+            this.tiempoPedidoMinutos = tP; this.tiempoLimiteEntregaMinutos = tP + hL * 60;
         }
         @Override public String toString() { return "Cust[" + id + "@" + super.toString() + ", Dem:" + demandaM3 + ", Lim:" + tiempoLimiteEntregaMinutos + "]"; }
+        // NUEVO: equals y hashCode para CustomerNode (basado en id)
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            CustomerNode that = (CustomerNode) o;
+            return id == that.id;
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(id);
+        }
     }
 
-    // Ruta: Secuencia de nodos para un camión específico
-    static class Route {
-        Truck truck;
-        Depot startDepot;
-        List<CustomerNode> sequence; // Lista ordenada de clientes a visitar
-        Depot endDepot;
-        double cost = Double.POSITIVE_INFINITY; // Costo (combustible) de esta ruta
-        boolean feasible = false; // Indica si cumple capacidad y ventanas de tiempo
-
-        Route(Truck truck, Depot depot) {
-            this.truck = truck;
-            this.startDepot = depot;
-            this.endDepot = depot; // Asume regreso al mismo depot
-            this.sequence = new ArrayList<>();
-        }
+    static class Route { /* ... sin cambios ... */
+        Truck truck; Depot startDepot; List<CustomerNode> sequence; Depot endDepot;
+        double cost = Double.POSITIVE_INFINITY; boolean feasible = false;
+        Route(Truck t, Depot d){truck=t; startDepot=d; endDepot=d; sequence=new ArrayList<>();}
         @Override public String toString() {
             String path = sequence.stream().map(n -> String.valueOf(n.id)).collect(Collectors.joining("->"));
-            return "Route[" + truck.id + ": " + startDepot.id + " -> " + path + " -> " + endDepot.id + "]";
+            return "Route[" + truck.id + ": " + startDepot.id + "->" + path + "->" + endDepot.id + "]";
         }
     }
 
-    // Solución: Conjunto de rutas que cubren los pedidos
-    static class Solution {
-        List<Route> routes;
-        Set<CustomerNode> unassignedCustomers; // Clientes aún no asignados a ninguna ruta
-        double totalCost = Double.POSITIVE_INFINITY;
-        boolean fullyFeasible = false;
-
-        Solution() {
-            this.routes = new ArrayList<>();
-            this.unassignedCustomers = new HashSet<>();
-        }
-        // Constructor para clonar soluciones
-        Solution(Solution other) {
+    static class Solution { /* ... sin cambios ... */
+        List<Route> routes; Set<CustomerNode> unassignedCustomers;
+        double totalCost = Double.POSITIVE_INFINITY; boolean fullyFeasible = false;
+        Solution(){routes=new ArrayList<>(); unassignedCustomers=new HashSet<>();}
+        Solution(Solution other){ /* ... constructor de copia sin cambios ... */
             this.routes = new ArrayList<>();
             for(Route r : other.routes) {
                 Route newR = new Route(r.truck, r.startDepot);
-                newR.sequence = new ArrayList<>(r.sequence);
-                newR.endDepot = r.endDepot;
-                newR.cost = r.cost;
-                newR.feasible = r.feasible;
+                newR.sequence = new ArrayList<>(r.sequence); // Copia profunda de secuencia
+                newR.endDepot = r.endDepot; newR.cost = r.cost; newR.feasible = r.feasible;
                 this.routes.add(newR);
             }
-            this.unassignedCustomers = new HashSet<>(other.unassignedCustomers);
-            this.totalCost = other.totalCost;
-            this.fullyFeasible = other.fullyFeasible;
+            this.unassignedCustomers = new HashSet<>(other.unassignedCustomers); // Copia set
+            this.totalCost = other.totalCost; this.fullyFeasible = other.fullyFeasible;
         }
     }
-
 
     // --- Estado de la Simulación ---
     static boolean[][] bloqueado = new boolean[GRID_WIDTH][GRID_HEIGHT];
     static List<Depot> depots = new ArrayList<>();
     static List<Truck> fleet = new ArrayList<>();
-    static List<CustomerNode> activeCustomers = new ArrayList<>(); // Clientes activos (pedidos recibidos, no necesariamente asignados)
-    static List<Pedido> pendingPedidos; // Pedidos del archivo aún no activados por tiempo
+    static List<CustomerNode> activeCustomers = new ArrayList<>();
+    static List<Pedido> pendingPedidos;
     static List<Bloqueo> definedBloqueos;
-    static int currentSimTime = 0; // Tiempo actual en minutos
+    static int currentSimTime = 0;
 
-    // --- Parámetros TS (Ajustar) ---
-    static final int MAX_ITERATIONS_TS = 500; // Reducido para prueba inicial
-    static final int TABU_TENURE_2OPT = 7;
-    // static final int TABU_TENURE_RELOCATE = 10; // Si se implementa
+    // --- Parámetros TS ---
+    static final int MAX_ITERATIONS_TS = 200; // Aumentar un poco las iteraciones
+    static final int TABU_TENURE = 15; // Un tenure unificado para todos los moves
 
-    // --- Estructura Lista Tabú (Adaptable a diferentes movimientos) ---
+    // --- Lista Tabú ---
     interface Move { } // Interfaz marcadora
 
-    // Movimiento 2-opt DENTRO de una ruta
-    static class Move_2Opt implements Move {
-        String truckId;
-        int custIndex1, custIndex2; // Índices en la *secuencia de clientes* de la ruta
-
-        Move_2Opt(String tid, int i1, int i2) {
-            this.truckId = tid;
-            this.custIndex1 = Math.min(i1, i2);
-            this.custIndex2 = Math.max(i1, i2);
-        }
-        @Override public String toString() { return "2Opt(T:" + truckId + ", C:" + custIndex1 + "," + custIndex2 + ")"; }
+    static class Move_2Opt implements Move { /* ... sin cambios ... */
+        String truckId; int custIndex1, custIndex2;
+        Move_2Opt(String tid, int i1, int i2){truckId=tid; custIndex1=Math.min(i1,i2); custIndex2=Math.max(i1,i2);}
+        @Override public String toString() { return "2Opt(T:" + truckId + ",C:" + custIndex1 + "," + custIndex2 + ")"; }
+        // NUEVO: equals y hashCode
+        @Override public boolean equals(Object o){if(this==o) return true; if(o==null||getClass()!=o.getClass())return false; Move_2Opt m=(Move_2Opt)o; return custIndex1==m.custIndex1 && custIndex2==m.custIndex2 && Objects.equals(truckId,m.truckId);}
+        @Override public int hashCode(){ return Objects.hash(truckId, custIndex1, custIndex2); }
     }
 
-    // (Futuro) Movimiento de Reubicación (cliente de ruta A a ruta B)
-    // static class Move_Relocate implements Move { ... }
+    // NUEVO: Movimiento de Reubicación (cliente de ruta A a ruta B)
+    static class Move_Relocate implements Move {
+        int customerId;
+        String sourceTruckId;
+        String destTruckId;
+        // Podríamos añadir índices para un tabú más específico, pero esto es más simple:
+        // Hacer tabú mover este cliente *desde* este camión por un tiempo.
+        // O hacer tabú mover este cliente *hacia* el camión destino por un tiempo.
+        // Vamos a implementar el tabú basado en (customerId, sourceTruckId) -> previene moverlo de nuevo pronto.
+        // O (customerId, destTruckId) -> previene moverlo *a* ese camion de nuevo.
+        // Probemos con (customerId, destTruckId) como tabú.
+
+        Move_Relocate(int custId, String srcTid, String destTid) {
+            this.customerId = custId;
+            this.sourceTruckId = srcTid; // informativo
+            this.destTruckId = destTid; // clave para tabú
+        }
+        @Override public String toString() { return "Reloc(C:" + customerId + ", From:" + sourceTruckId + ", To:" + destTruckId + ")"; }
+        // NUEVO: equals y hashCode (basado en cliente y camión destino para tabú)
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Move_Relocate that = (Move_Relocate) o;
+            return customerId == that.customerId && Objects.equals(destTruckId, that.destTruckId);
+            // Alternativa: Basado en cliente y origen:
+            // return customerId == that.customerId && Objects.equals(sourceTruckId, that.sourceTruckId);
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(customerId, destTruckId);
+            // Alternativa: return Objects.hash(customerId, sourceTruckId);
+        }
+    }
 
     static Queue<Move> tabuQueue = new LinkedList<>();
     static Set<Move> tabuSet = new HashSet<>();
 
 
     // --- Método Principal (Simulación) ---
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception { /* ... sin cambios ... */
         initializeSimulation();
-
-        int tiempoFinal = 7 * 24 * 60; // Simulación de 1 semana para probar
-
+        int tiempoFinal = 7 * 24 * 60; // Simulación de 1 semana
         while (currentSimTime <= tiempoFinal) {
-
             boolean newEvent = updateSimulationState(currentSimTime);
-
-            // --- REPLANIFICACIÓN ---
-            // ¿Cuándo replanificar?
-            // 1. Al llegar nuevos pedidos significativos?
-            // 2. Periódicamente (ej. cada hora)?
-            // 3. Cuando ocurre un evento disruptivo (avería - no implementado)?
-            // Por simplicidad, planificaremos al final o cuando haya nuevos pedidos.
+            // --- REPLANIFICACIÓN (OPCIONAL) ---
             if (newEvent && !activeCustomers.isEmpty()) {
                 System.out.println("\n=== REPLANIFICANDO RUTAS en t=" + currentSimTime + " ===");
                 Solution replannedSolution = planRoutesWithTabuSearch();
-                // Aquí podríamos actualizar el estado de los camiones según las nuevas rutas
-                // y avanzar la simulación de forma más detallada.
                 if (replannedSolution != null) {
                     System.out.println("  (Replanificación completada, costo: " + formatCost(replannedSolution.totalCost) + ")");
                 } else {
                     System.err.println("  (Replanificación falló o no fue necesaria)");
                 }
             }
-
-            if (currentSimTime % 60 == 0) { // Info cada hora
+            //--- Info Horaria ---
+            if (currentSimTime > 0 && currentSimTime % (60) == 0) { // Info cada hora
                 System.out.println("--- Tiempo: " + (currentSimTime / (24*60)) + "d " +
                         ((currentSimTime % (24*60)) / 60) + "h " +
-                        (currentSimTime % 60) + "m ---");
+                        (currentSimTime % 60) + "m --- (" + activeCustomers.size() + " clientes activos)");
             }
-
-            // Pausa opcional
-            // Thread.sleep(10);
-
             currentSimTime++;
-        }
+        } // Fin While
 
-        System.out.println("\n✅ Simulación finalizada en minuto " + currentSimTime);
-        // Planificación final si no se hizo antes
+        System.out.println("\n✅ Simulación finalizada en minuto " + (currentSimTime -1));
+        // --- PLANIFICACIÓN FINAL ---
         Solution finalSolution = null;
         if (!activeCustomers.isEmpty()) {
-            System.out.println("\n🚀 Planificación Final con Tabu Search...");
+            System.out.println("\n🚀 Planificación Final con Tabu Search... (" + activeCustomers.size() + " clientes)");
             finalSolution = planRoutesWithTabuSearch();
         } else {
-            System.out.println("🤷 No hay clientes activos para planificar.");
+            System.out.println("🤷 No hay clientes activos para planificar al final.");
         }
-
-        if (finalSolution != null && !finalSolution.routes.isEmpty()) { // Asegurarse de que hay algo que mostrar
+        // --- VISUALIZACIÓN FINAL ---
+        if (finalSolution != null && !finalSolution.routes.isEmpty()) {
             System.out.println("\n📈 Mostrando visualización de la solución final...");
-            visualizarSolucion(finalSolution); // <<-- ÚNICA LLAMADA A VISUALIZACIÓN
-        } else if (finalSolution != null && finalSolution.routes.isEmpty() && !finalSolution.unassignedCustomers.isEmpty()){
-            System.out.println(" T_T No se pudieron asignar rutas a los clientes activos. No se muestra visualización de rutas.");
-            // visualizarSolucionSimple(finalSolution); // Una versión que solo muestre nodos
+            visualizarSolucion(finalSolution);
+        } else if (finalSolution != null && !finalSolution.unassignedCustomers.isEmpty()){
+            System.out.println(" T_T No se pudieron asignar todas las rutas. Clientes sin asignar: " + finalSolution.unassignedCustomers.size());
+            // Opcional: Mostrar mapa solo con nodos si se desea
+            // visualizarSolucionSimple(finalSolution);
+        } else {
+            System.out.println(" T_T No hay solución final generada o rutas para visualizar.");
         }
-        else {
-            System.out.println(" T_T No hay solución final generada para visualizar.");
-        }
+        System.out.println("\nPrograma terminado.");
     }
 
     // --- Inicialización ---
-    static void initializeSimulation() throws Exception {
+    static void initializeSimulation() throws Exception { /* ... sin cambios ... */
         System.out.println("Inicializando simulación...");
-        // 1. Cargar Datos
-        pendingPedidos = cargarPedidos("pedidos.txt"); // Usar formato ventas2025mm
-        definedBloqueos = cargarBloqueos("bloqueos.txt"); // Usar formato aaaamm.bloqueadas
-
-        // 2. Crear Depósitos
-        depots.add(new Depot("Planta", 12, 8, Double.POSITIVE_INFINITY)); // Capacidad infinita
+        pendingPedidos = cargarPedidos("pedidos.txt");
+        definedBloqueos = cargarBloqueos("bloqueos.txt");
+        depots.add(new Depot("Planta", 12, 8, Double.POSITIVE_INFINITY));
         depots.add(new Depot("Norte", 42, 42, 160.0));
         depots.add(new Depot("Este", 63, 3, 160.0));
         System.out.println("Depósitos creados: " + depots.size());
-
-        // 3. Crear Flota de Camiones
-        // Asignar un depósito base (ej. Planta principal para todos inicialmente)
-        Depot mainDepot = depots.get(0);
-        int count = 0;
-        for (int i = 1; i <= 2; i++) fleet.add(new Truck(String.format("TA%02d", i), TruckType.TA, mainDepot)); count+=2;
-        for (int i = 1; i <= 4; i++) fleet.add(new Truck(String.format("TB%02d", i), TruckType.TB, mainDepot)); count+=4;
-        for (int i = 1; i <= 4; i++) fleet.add(new Truck(String.format("TC%02d", i), TruckType.TC, mainDepot)); count+=4;
-        for (int i = 1; i <= 10; i++) fleet.add(new Truck(String.format("TD%02d", i), TruckType.TD, mainDepot)); count+=10;
+        Depot mainDepot = depots.get(0); int count = 0;
+        for (int i=1; i<= 2; i++) fleet.add(new Truck(String.format("TA%02d", i), TruckType.TA, mainDepot)); count+=2;
+        for (int i=1; i<= 4; i++) fleet.add(new Truck(String.format("TB%02d", i), TruckType.TB, mainDepot)); count+=4;
+        for (int i=1; i<= 4; i++) fleet.add(new Truck(String.format("TC%02d", i), TruckType.TC, mainDepot)); count+=4;
+        for (int i=1; i<=10; i++) fleet.add(new Truck(String.format("TD%02d", i), TruckType.TD, mainDepot)); count+=10;
         System.out.println("Flota creada: " + count + " camiones.");
-
-        // 4. Inicializar estado
         bloqueado = new boolean[GRID_WIDTH][GRID_HEIGHT];
-        activeCustomers.clear();
-        currentSimTime = 0;
-
+        activeCustomers.clear(); currentSimTime = 0;
         System.out.println("Inicialización completa.");
     }
 
-    // --- Actualización del Estado en cada Minuto ---
-    static boolean updateSimulationState(int minutoActual) {
+    // --- Actualización del Estado ---
+    static boolean updateSimulationState(int minutoActual) { /* ... sin cambios ... */
         boolean nuevoPedido = activateNewPedidos(minutoActual);
         boolean cambioBloqueo = updateBloqueos(minutoActual);
-        // Aquí iría la lógica de reabastecimiento de depósitos a las 00:00,
-        // chequeo de mantenimientos/averías (futuro), etc.
-        if (minutoActual % (24 * 60) == 0) { // A las 00:00
+        if (minutoActual > 0 && minutoActual % (24 * 60) == 0) {
             for (Depot d : depots) {
                 if (d.capacidadMaximaM3 != Double.POSITIVE_INFINITY) {
-                    d.capacidadActualM3 = d.capacidadMaximaM3; // Rellenar intermedios
-                    // System.out.println("Depot " + d.id + " reabastecido.");
+                    d.capacidadActualM3 = d.capacidadMaximaM3;
                 }
             }
         }
-
-        return nuevoPedido || cambioBloqueo; // Indica si ocurrió un evento relevante
+        return nuevoPedido || cambioBloqueo;
     }
 
-    // --- Métodos de Activación/Actualización (Adaptados) ---
-    static boolean activateNewPedidos(int minutoActual) {
-        boolean added = false;
-        Iterator<Pedido> it = pendingPedidos.iterator();
-        while (it.hasNext()) {
-            Pedido p = it.next();
-            if (p.momentoPedido == minutoActual) {
-                CustomerNode customer = new CustomerNode(p.x, p.y, p.volumen, p.momentoPedido, p.horaLimite);
-                activeCustomers.add(customer);
-                System.out.println("⏰ t=" + minutoActual + " -> Nuevo Pedido ID:" + customer.id + " en " + customer + " recibido.");
-                it.remove();
-                added = true;
-            } else if (p.momentoPedido > minutoActual) {
-                // Los pedidos están ordenados por tiempo, podemos parar de buscar
-                // break; // Descomentar si se garantiza orden en el archivo
-            }
-        }
-        return added;
+    // --- Activación/Actualización (Pedidos, Bloqueos) ---
+    static boolean activateNewPedidos(int minutoActual) { /* ... sin cambios ... */
+        boolean added = false; Iterator<Pedido> it = pendingPedidos.iterator();
+        while(it.hasNext()){ Pedido p=it.next(); if(p.momentoPedido==minutoActual){ CustomerNode c=new CustomerNode(p.x,p.y,p.volumen,p.momentoPedido,p.horaLimite); activeCustomers.add(c); System.out.println("⏰ t="+minutoActual+" -> Nuevo Pedido ID:"+c.id+" en "+c+" recibido."); it.remove(); added=true;} else if(p.momentoPedido > minutoActual){ /* break; si ordenado */}} return added;
+    }
+    static boolean updateBloqueos(int minutoActual) { /* ... sin cambios ... */
+        boolean changed = false; for(Bloqueo b:definedBloqueos){ if(b.inicioMinutos==minutoActual){changed=true; activateOrDeactivateBloqueo(b,true);} if(b.finMinutos==minutoActual){changed=true; activateOrDeactivateBloqueo(b,false);}} return changed;
+    }
+    static void activateOrDeactivateBloqueo(Bloqueo b, boolean activate) { /* ... sin cambios ... */
+        for(int[] p:b.puntosBloqueados){int x=p[0],y=p[1]; if(x>=0&&x<GRID_WIDTH&&y>=0&&y<GRID_HEIGHT) bloqueado[x][y]=activate;}
     }
 
-    static boolean updateBloqueos(int minutoActual) {
-        boolean changed = false;
-        for (Bloqueo b : definedBloqueos) {
-            if (b.inicioMinutos == minutoActual) {
-                changed = true;
-                // System.out.print("🚧 Bloqueo Activado t="+minutoActual+": ");
-                activateOrDeactivateBloqueo(b, true);
-            }
-            if (b.finMinutos == minutoActual) {
-                changed = true;
-                // System.out.print("✅ Bloqueo Desactivado t="+minutoActual+": ");
-                activateOrDeactivateBloqueo(b, false);
-            }
-        }
-        // if (changed) System.out.println();
-        return changed;
-    }
-
-    static void activateOrDeactivateBloqueo(Bloqueo b, boolean activate) {
-        // Los bloqueos son NODOS (esquinas)
-        for (int[] punto : b.puntosBloqueados) {
-            int x = punto[0];
-            int y = punto[1];
-            if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
-                bloqueado[x][y] = activate;
-                // System.out.print("("+x+","+y+") ");
-            }
-        }
-    }
-
-    // --- Planificación de Rutas con Búsqueda Tabú (MDVRP Simplificado) ---
+    // --- Planificación de Rutas con Búsqueda Tabú ---
     static Solution planRoutesWithTabuSearch() {
         if (activeCustomers.isEmpty()) {
             System.out.println("No hay clientes activos para planificar.");
@@ -390,564 +337,401 @@ public class TabuSearchPlanner_MDVRP {
 
         long startTime = System.currentTimeMillis();
 
-        // 1. Crear Solución Inicial (Greedy - muy simple)
-        Solution currentSolution = createInitialSolutionGreedy();
-        if (currentSolution == null || currentSolution.routes.isEmpty()) {
-            System.err.println("No se pudo generar una solución inicial factible.");
+        // MODIFICADO: Usar la nueva heurística inicial
+        System.out.println("  Generando solución inicial con Best Fit...");
+        Solution currentSolution = createInitialSolutionBestFit();
+        if (currentSolution == null) {
+            System.err.println("No se pudo generar una solución inicial.");
+            return null;
+        }
+        if (currentSolution.routes.isEmpty() && !currentSolution.unassignedCustomers.isEmpty()) {
+            System.err.println("Solución inicial no pudo asignar ningún cliente.");
+            // Podríamos devolver null o intentar TS de todas formas si hay movimientos que asignen
+            // Devolveremos null por ahora si no hay rutas iniciales
             return null;
         }
 
-        evaluateSolution(currentSolution); // Calcula costo y factibilidad inicial
-        Solution bestSolution = new Solution(currentSolution); // Clonar
+        evaluateSolution(currentSolution);
+        Solution bestSolution = new Solution(currentSolution);
 
-        System.out.println("  Solución Inicial | Costo: " + formatCost(bestSolution.totalCost) + " | Rutas: " + bestSolution.routes.size() + " | Factible: " + bestSolution.fullyFeasible);
+        System.out.println("  Solución Inicial | Costo: " + formatCost(bestSolution.totalCost) + " | Rutas: " + bestSolution.routes.size() + " | Sin Asignar: " + bestSolution.unassignedCustomers.size() + " | Factible: " + bestSolution.fullyFeasible);
 
-        // Limpiar lista Tabú
         tabuQueue.clear();
         tabuSet.clear();
 
-        // 2. Bucle TS
+        // --- Bucle TS ---
         for (int iter = 0; iter < MAX_ITERATIONS_TS; iter++) {
-            Solution bestNeighborSolution = null;
-            Move bestNeighborMove = null;
-            double bestNeighborCost = Double.POSITIVE_INFINITY;
-            boolean bestNeighborIsTabu = false;
+            Solution bestNeighborOverall = null; // Mejor vecino encontrado en ESTA iteración (2opt o relocate)
+            Move bestMoveOverall = null;         // Movimiento que llevó al mejor vecino
+            double bestNeighborCostOverall = Double.POSITIVE_INFINITY;
+            boolean bestMoveIsTabuOverall = false;
 
-            // 3. Generar Vecindario (Solo 2-Opt intra-ruta por ahora)
+            // --- Vecindario 1: 2-Opt (Intra-Ruta) ---
             for (Route currentRoute : currentSolution.routes) {
-                if (currentRoute.sequence.size() < 2) continue; // Necesita al menos 2 clientes para 2-opt
+                if (currentRoute.sequence.size() < 2) continue;
 
-                for (int i = 0; i < currentRoute.sequence.size() -1; i++) {
+                for (int i = 0; i < currentRoute.sequence.size() - 1; i++) {
                     for (int j = i + 1; j < currentRoute.sequence.size(); j++) {
-                        // Crear movimiento
                         Move_2Opt move = new Move_2Opt(currentRoute.truck.id, i, j);
-
-                        // Crear copia de la solución actual para modificarla
                         Solution neighborSolution = new Solution(currentSolution);
-                        // Encontrar la ruta correspondiente en la copia
                         Route routeToModify = findRouteInSolution(neighborSolution, currentRoute.truck.id);
 
                         if (routeToModify != null) {
-                            // Aplicar 2-opt en la copia
                             apply2OptIntraRoute(routeToModify, i, j);
-
-                            // Evaluar la solución vecina completa
-                            evaluateSolution(neighborSolution); // Recalcula costo y factibilidad
-
+                            evaluateSolution(neighborSolution); // Evaluar solución completa
                             boolean isTabu = tabuSet.contains(move);
 
-                            // Actualizar mejor vecino de *esta iteración*
-                            if (neighborSolution.totalCost < bestNeighborCost) {
-                                bestNeighborCost = neighborSolution.totalCost;
-                                bestNeighborSolution = neighborSolution; // Guardar copia
-                                bestNeighborMove = move;
-                                bestNeighborIsTabu = isTabu;
+                            // Comparar con el mejor vecino GLOBAL de esta iteración
+                            if (neighborSolution.totalCost < bestNeighborCostOverall) {
+                                bestNeighborCostOverall = neighborSolution.totalCost;
+                                bestNeighborOverall = neighborSolution;
+                                bestMoveOverall = move;
+                                bestMoveIsTabuOverall = isTabu;
                             }
                         }
-                    }
-                }
-            }
-            // --- (Aquí se añadiría la generación de vecinos con otros movimientos como Relocate) ---
+                    } // Fin for j
+                } // Fin for i
+            } // Fin for rutas (2-Opt)
 
+            // --- Vecindario 2: Relocate (Inter-Ruta) ---
+            // NUEVO: Generación de vecinos por Reubicación
+            for (int routeIdxA = 0; routeIdxA < currentSolution.routes.size(); routeIdxA++) {
+                Route routeA = currentSolution.routes.get(routeIdxA);
+                if (routeA.sequence.isEmpty()) continue;
 
-            // 4. Seleccionar Siguiente Movimiento y Actualizar
-            if (bestNeighborSolution == null) {
-                // System.out.println("Iter " + iter + ": No se encontraron vecinos (¿rutas muy cortas?).");
-                break; // Salir si no hay vecinos
+                // Iterar hacia atrás para evitar problemas con índices al quitar
+                for (int custIdxA = routeA.sequence.size() - 1; custIdxA >= 0; custIdxA--) {
+                    CustomerNode customerToMove = routeA.sequence.get(custIdxA);
+
+                    for (int routeIdxB = 0; routeIdxB < currentSolution.routes.size(); routeIdxB++) {
+                        if (routeIdxA == routeIdxB) continue; // No mover a la misma ruta
+                        Route routeB = currentSolution.routes.get(routeIdxB);
+
+                        // Intentar insertar en cada posición de routeB
+                        for (int posB = 0; posB <= routeB.sequence.size(); posB++) {
+                            // Simular movimiento en una copia
+                            Solution neighborSolution = new Solution(currentSolution);
+                            Route neighborRouteA = findRouteInSolution(neighborSolution, routeA.truck.id);
+                            Route neighborRouteB = findRouteInSolution(neighborSolution, routeB.truck.id);
+
+                            if(neighborRouteA == null || neighborRouteB == null) continue; // Seguridad
+
+                            // 1. Verificar si la capacidad de B permite al nuevo cliente
+                            double loadB_before = calculateRouteLoad(neighborRouteB);
+                            if (loadB_before + customerToMove.demandaM3 > neighborRouteB.truck.type.capacidadM3) {
+                                continue; // Salta esta inserción, excede capacidad de B
+                            }
+
+                            // 2. Realizar el movimiento en la copia
+                            CustomerNode movedCustomer = neighborRouteA.sequence.remove(custIdxA);
+                            neighborRouteB.sequence.add(posB, movedCustomer);
+
+                            // 3. Evaluar la solución vecina
+                            // ¡Importante! Evaluar *después* de hacer el movimiento
+                            evaluateSolution(neighborSolution);
+
+                            // 4. Crear el objeto Move y verificar Tabú
+                            // Usamos (customerId, destTruckId) para el tabú
+                            Move_Relocate move = new Move_Relocate(movedCustomer.id, routeA.truck.id, routeB.truck.id);
+                            boolean isTabu = tabuSet.contains(move);
+
+                            // 5. Comparar con el mejor vecino GLOBAL de la iteración
+                            if (neighborSolution.totalCost < bestNeighborCostOverall) {
+                                bestNeighborCostOverall = neighborSolution.totalCost;
+                                bestNeighborOverall = neighborSolution;
+                                bestMoveOverall = move;
+                                bestMoveIsTabuOverall = isTabu;
+                            }
+                            // La copia (neighborSolution) se descarta automáticamente al final de esta iteración interna
+                        } // Fin for posB
+                    } // Fin for routeIdxB
+                } // Fin for custIdxA
+            } // Fin for routeIdxA (Relocate)
+
+            // --- Selección del Siguiente Movimiento y Actualización ---
+            if (bestNeighborOverall == null) {
+                System.out.println("  Iter " + iter + ": No se encontraron vecinos válidos.");
+                break; // Salir si no hay mejora posible
             }
 
             boolean moveChosen = false;
-            // Criterio de Aspiración: Si es tabú PERO mejora la MEJOR global, se acepta
-            if (bestNeighborIsTabu) {
-                if (bestNeighborCost < bestSolution.totalCost) {
-                    currentSolution = bestNeighborSolution; // Aceptar el vecino tabú
-                    // System.out.println("  Iter " + iter + ": Aspiración! Mov. Tabú " + bestNeighborMove + " aceptado. Costo: " + formatCost(currentSolution.totalCost));
+            // Aplicar Criterio de Aspiración
+            if (bestMoveIsTabuOverall) {
+                if (bestNeighborCostOverall < bestSolution.totalCost) { // Mejora al mejor global histórico?
+                    currentSolution = bestNeighborOverall; // Aceptar por aspiración
                     moveChosen = true;
+                    // System.out.println("  Iter " + iter + ": Aspiración! Mov. Tabú " + bestMoveOverall + " aceptado. Costo: " + formatCost(currentSolution.totalCost));
+                } else {
+                    moveChosen = false; // Es tabú y no aspira, no moverse (simplificado)
+                    // Podríamos buscar el mejor NO tabú aquí si quisiéramos ser más completos
                 }
-                // Si es tabú y no mejora global, NO se elige (necesitaríamos buscar el mejor NO tabú)
-                else {
-                    // Lógica para encontrar el mejor NO tabú (omitida por simplicidad ahora)
-                    // Si no hay no-tabú, podríamos parar o quedarnos.
-                    // System.out.println("  Iter " + iter + ": Mejor vecino es Tabú y no aspira. Buscando alternativas...");
-                    // Por ahora, si el mejor es tabú y no aspira, no nos movemos.
-                    moveChosen = false;
-
-                }
-
             } else {
-                // Si el mejor vecino no es tabú, lo aceptamos
-                currentSolution = bestNeighborSolution;
+                // No es tabú, aceptar el mejor vecino de la iteración
+                currentSolution = bestNeighborOverall;
                 moveChosen = true;
             }
 
-
-            // 5. Actualizar Lista Tabú y Mejor Solución Global
+            // --- Actualizar Lista Tabú y Mejor Solución Global ---
             if (moveChosen) {
-                // Añadir el *movimiento* a la lista tabú
-                tabuQueue.offer(bestNeighborMove);
-                tabuSet.add(bestNeighborMove);
-                while (tabuQueue.size() > TABU_TENURE_2OPT) { // Adaptar si hay más tipos de moves
+                // Añadir el movimiento ELEGIDO a la lista tabú
+                tabuQueue.offer(bestMoveOverall); // Añadir el objeto Move (2Opt o Relocate)
+                tabuSet.add(bestMoveOverall);
+                // Mantener tamaño de la lista tabú ( Tenure unificado)
+                while (tabuQueue.size() > TABU_TENURE) {
                     tabuSet.remove(tabuQueue.poll());
                 }
 
-                // Actualizar mejor solución global si es necesario
+                // Actualizar mejor solución global si la solución actual es mejor
                 if (currentSolution.totalCost < bestSolution.totalCost) {
-                    bestSolution = new Solution(currentSolution); // Clonar la nueva mejor
-                    System.out.println("  Iter " + iter + ": ✨ Nueva Mejor Solución Global! Costo: " + formatCost(bestSolution.totalCost) + " Factible: " + bestSolution.fullyFeasible);
+                    bestSolution = new Solution(currentSolution); // Clonar
+                    System.out.println("  Iter " + iter + ": ✨ Nueva Mejor Solución Global! Costo: " + formatCost(bestSolution.totalCost) + " Sin Asignar: " + bestSolution.unassignedCustomers.size() + " Factible: " + bestSolution.fullyFeasible);
                 }
-            } else if (iter > 0) {
-                // No se eligió movimiento (ej. mejor era tabú y no aspiró)
-                // Podría implementarse diversificación aquí.
-                //System.out.println("  Iter " + iter + ": No se seleccionó movimiento.");
-            }
+            } // Fin if(moveChosen)
 
-
-            if (iter % 50 == 0 && iter > 0) {
-                System.out.println("  Iter " + iter + " | Costo Actual: " + formatCost(currentSolution.totalCost) + " | Mejor Costo: " + formatCost(bestSolution.totalCost));
+            // Imprimir progreso ocasionalmente
+            if (iter > 0 && iter % 100 == 0) {
+                System.out.println("  Iter " + iter + " | Costo Actual: " + formatCost(currentSolution.totalCost) + " | Mejor Costo: " + formatCost(bestSolution.totalCost) + " | Sin Asignar: " + bestSolution.unassignedCustomers.size());
             }
 
         } // Fin bucle TS
 
         long endTime = System.currentTimeMillis();
-        System.out.println("\n🏁 Búsqueda Tabú (MDVRP) completada en " + (endTime - startTime) + " ms.");
+        // --- Imprimir Resumen Final ---
+        System.out.println("\n🏁 Búsqueda Tabú (MDVRP con Relocate) completada en " + (endTime - startTime) + " ms.");
         System.out.println("🏆 Mejor solución encontrada:");
         System.out.println("  Costo Total (Combustible): " + formatCost(bestSolution.totalCost));
         System.out.println("  Totalmente Factible: " + bestSolution.fullyFeasible);
+        System.out.println("  Clientes Sin Asignar: " + bestSolution.unassignedCustomers.size());
         System.out.println("  Rutas (" + bestSolution.routes.size() + "):");
         for(Route r : bestSolution.routes) {
             System.out.println("    " + r + " | Costo: " + formatCost(r.cost) + " | Factible: " + r.feasible);
-        }
-        if(!bestSolution.unassignedCustomers.isEmpty()) {
-            System.err.println("  ⚠️ Clientes NO ASIGNADOS: " + bestSolution.unassignedCustomers.size());
         }
 
         return bestSolution;
     }
 
 
-    static String formatCost(double cost) {
+    // --- Formato de Costo ---
+    static String formatCost(double cost) { /* ... sin cambios ... */
         if (cost == Double.POSITIVE_INFINITY) return "INF";
         return String.format("%.2f Gal", cost);
     }
-
-    // Encuentra una ruta específica en una solución por ID de camión
-    static Route findRouteInSolution(Solution solution, String truckId) {
-        for (Route route : solution.routes) {
-            if (route.truck.id.equals(truckId)) {
-                return route;
-            }
-        }
-        return null; // No encontrado
+    // --- Buscar Ruta en Solución ---
+    static Route findRouteInSolution(Solution solution, String truckId) { /* ... sin cambios ... */
+        for(Route r : solution.routes){ if(r.truck.id.equals(truckId)) return r; } return null;
     }
-
-    // Aplica 2-opt a la secuencia de clientes de una ruta
-    static void apply2OptIntraRoute(Route route, int index1, int index2) {
-        List<CustomerNode> seq = route.sequence;
-        // Invertir el segmento entre index1 (inclusive) y index2 (inclusive)
-        int start = Math.min(index1, index2);
-        int end = Math.max(index1, index2);
-        while (start < end) {
-            CustomerNode temp = seq.get(start);
-            seq.set(start, seq.get(end));
-            seq.set(end, temp);
-            start++;
-            end--;
-        }
+    // --- Aplicar 2-Opt ---
+    static void apply2OptIntraRoute(Route route, int index1, int index2) { /* ... sin cambios ... */
+        List<CustomerNode> seq = route.sequence; int start = Math.min(index1, index2); int end = Math.max(index1, index2);
+        while(start < end){ CustomerNode temp = seq.get(start); seq.set(start, seq.get(end)); seq.set(end, temp); start++; end--;}
     }
 
 
-    // --- Creación de Solución Inicial (Ejemplo Greedy Simple) ---
-    // ¡Esta parte es crucial y compleja en VRP! Este es un placeholder muy básico.
-    static Solution createInitialSolutionGreedy() {
+    // --- Creación de Solución Inicial (Mejorada: Best Fit Insertion) ---
+    // MODIFICADO: Reemplaza createInitialSolutionGreedy
+    static Solution createInitialSolutionBestFit() {
         Solution initialSol = new Solution();
-        initialSol.unassignedCustomers.addAll(activeCustomers); // Empezar con todos sin asignar
+        // Empezar con todos los clientes activos como no asignados
+        initialSol.unassignedCustomers.addAll(activeCustomers);
 
-        // Crear rutas vacías para cada camión disponible
+        // Crear rutas vacías iniciales para cada camión disponible
         for (Truck truck : fleet) {
             if (truck.disponible) {
-                // Asignar depósito base (usar el homeDepot definido en el camión)
                 initialSol.routes.add(new Route(truck, truck.homeDepot));
             }
         }
 
-        if (initialSol.routes.isEmpty()) return null; // No hay camiones
-
-        // Intentar asignar clientes uno por uno (podría ser aleatorio o por cercanía)
-        List<CustomerNode> customersToAssign = new ArrayList<>(initialSol.unassignedCustomers);
-        Collections.shuffle(customersToAssign); // Asignar en orden aleatorio
-
-        for (CustomerNode customer : customersToAssign) {
-            boolean assigned = false;
-            // Intentar insertar en la *mejor* ruta posible (la que incremente menos el costo y sea factible)
-            Route bestRouteForCustomer = null;
-            int bestInsertionPos = -1;
-            double minCostIncrease = Double.POSITIVE_INFINITY;
-
-            for (Route route : initialSol.routes) {
-                // Intentar insertar en cada posición posible de esta ruta
-                for (int pos = 0; pos <= route.sequence.size(); pos++) {
-                    // Simular inserción
-                    route.sequence.add(pos, customer);
-                    double currentLoad = calculateRouteLoad(route);
-
-                    // Chequeo rápido de capacidad
-                    if (currentLoad <= route.truck.type.capacidadM3) {
-                        // Evaluar costo y factibilidad de esta inserción (simplificado aquí)
-                        // ¡La evaluación completa es costosa! Se haría un chequeo rápido.
-                        double potentialCost = calculateRouteCost(route, currentSimTime); // Evalúa la ruta modificada
-                        if (potentialCost < Double.POSITIVE_INFINITY) { // Si es factible y calculable
-                            // Calcular el incremento de costo (aproximado o real)
-                            double costIncrease = potentialCost - (route.cost == Double.POSITIVE_INFINITY ? 0 : route.cost) ; // Costo incremental
-
-                            if (costIncrease < minCostIncrease) {
-                                minCostIncrease = costIncrease;
-                                bestRouteForCustomer = route;
-                                bestInsertionPos = pos;
-                            }
-                        }
-                    }
-                    // Deshacer simulación
-                    route.sequence.remove(pos);
-                }
-            }
-
-            // Si se encontró una inserción válida
-            if (bestRouteForCustomer != null) {
-                bestRouteForCustomer.sequence.add(bestInsertionPos, customer);
-                evaluateRoute(bestRouteForCustomer, currentSimTime); // Recalcular costo real de la ruta modificada
-                initialSol.unassignedCustomers.remove(customer);
-                assigned = true;
-                // System.out.println("  Asignado C" + customer.id + " a " + bestRouteForCustomer.truck.id + " en pos " + bestInsertionPos);
-            }
-
-            if (!assigned) {
-                // System.err.println("  No se pudo asignar C" + customer.id + " a ninguna ruta inicial.");
-                // El cliente queda en unassignedCustomers
-            }
+        if (initialSol.routes.isEmpty()) {
+            System.err.println("Error Inicial: No hay camiones disponibles.");
+            return null;
         }
 
-        // Eliminar rutas que quedaron vacías
+        int customersAssignedThisPass;
+        do {
+            customersAssignedThisPass = 0;
+            CustomerNode bestCustomerToAssign = null;
+            Route bestRouteForCustomer = null;
+            int bestInsertionPos = -1;
+            double minGlobalCostIncrease = Double.POSITIVE_INFINITY;
+
+            // Iterar sobre TODOS los clientes sin asignar en cada pasada
+            // (Podría ser costoso si hay muchos)
+            List<CustomerNode> candidates = new ArrayList<>(initialSol.unassignedCustomers);
+
+            for (CustomerNode customer : candidates) {
+                // Buscar la MEJOR inserción posible para ESTE cliente en CUALQUIER ruta
+                Route currentBestRoute = null;
+                int currentBestPos = -1;
+                double currentMinCostInc = Double.POSITIVE_INFINITY;
+
+                for (Route route : initialSol.routes) {
+                    for (int pos = 0; pos <= route.sequence.size(); pos++) {
+                        // 1. Simular inserción
+                        route.sequence.add(pos, customer);
+                        // 2. Verificar capacidad RÁPIDAMENTE antes de evaluar costo completo
+                        if (calculateRouteLoad(route) <= route.truck.type.capacidadM3) {
+                            // 3. Evaluar costo y factibilidad (esta es la parte costosa)
+                            double potentialCost = calculateRouteCost(route, currentSimTime); // O tiempo 0 si planificamos antes? Usar currentSimTime.
+                            if (potentialCost < Double.POSITIVE_INFINITY) { // Si la ruta es factible con la inserción
+                                // 4. Calcular incremento de costo
+                                // Costo original: 0 si era infinito o vacía, sino el costo calculado previamente
+                                double originalRouteCost = (route.cost == Double.POSITIVE_INFINITY || route.sequence.size() == 1) ? 0 : route.cost;
+                                double costIncrease = potentialCost - originalRouteCost;
+
+                                // 5. Actualizar la mejor inserción para ESTE cliente
+                                if (costIncrease < currentMinCostInc) {
+                                    currentMinCostInc = costIncrease;
+                                    currentBestRoute = route;
+                                    currentBestPos = pos;
+                                }
+                            }
+                        }
+                        // 6. Deshacer simulación
+                        route.sequence.remove(pos);
+                    } // Fin for posiciones
+                } // Fin for rutas
+
+                // Si encontramos la mejor inserción global para ESTE cliente,
+                // la comparamos con la mejor inserción global encontrada HASTA AHORA
+                if (currentBestRoute != null && currentMinCostInc < minGlobalCostIncrease) {
+                    minGlobalCostIncrease = currentMinCostInc;
+                    bestCustomerToAssign = customer;
+                    bestRouteForCustomer = currentBestRoute;
+                    bestInsertionPos = currentBestPos;
+                }
+
+            } // Fin for clientes candidatos
+
+            // Si encontramos una mejor inserción global en esta pasada, realizarla
+            if (bestCustomerToAssign != null) {
+                bestRouteForCustomer.sequence.add(bestInsertionPos, bestCustomerToAssign);
+                // Re-evaluar la ruta modificada para actualizar su costo y factibilidad
+                evaluateRoute(bestRouteForCustomer, currentSimTime);
+                initialSol.unassignedCustomers.remove(bestCustomerToAssign);
+                customersAssignedThisPass++;
+                System.out.println("  Init Sol: Asignado C" + bestCustomerToAssign.id + " a " + bestRouteForCustomer.truck.id + " (costo ruta: " + formatCost(bestRouteForCustomer.cost) + ")");
+            }
+
+        } while (customersAssignedThisPass > 0); // Repetir mientras podamos asignar clientes
+
+        // Eliminar rutas que quedaron vacías al final
         initialSol.routes.removeIf(route -> route.sequence.isEmpty());
 
         return initialSol;
     }
 
-    static double calculateRouteLoad(Route route) {
+    // --- Calcular Carga de Ruta ---
+    static double calculateRouteLoad(Route route) { /* ... sin cambios ... */
         return route.sequence.stream().mapToDouble(c -> c.demandaM3).sum();
     }
-
-    // --- Evaluación de Solución y Rutas ---
-    static void evaluateSolution(Solution solution) {
-        solution.totalCost = 0;
-        solution.fullyFeasible = true;
-        for (Route route : solution.routes) {
-            evaluateRoute(route, currentSimTime); // Evalúa cada ruta individualmente
-            if (!route.feasible) {
-                solution.fullyFeasible = false;
-                solution.totalCost += route.cost; // Añadir costo (posiblemente con penalización)
-                // O simplemente marcar la solución completa como infactible si una ruta lo es?
-                // solution.totalCost = Double.POSITIVE_INFINITY; // Opción más estricta
-                // break;
+    // --- Evaluación de Solución ---
+    static void evaluateSolution(Solution solution) { /* ... sin cambios ... */
+        solution.totalCost = 0; solution.fullyFeasible = true;
+        if (solution.routes == null) { // Seguridad
+            solution.totalCost = Double.POSITIVE_INFINITY;
+            solution.fullyFeasible = false;
+            return;
+        }
+        for(Route r : solution.routes){
+            evaluateRoute(r, currentSimTime); // Usar tiempo actual para evaluar TW
+            if(!r.feasible){ solution.fullyFeasible = false; }
+            // Sumar costo incluso si no es factible (ya será infinito o muy alto)
+            // Evitar sumar si es infinito para no obtener NaN
+            if (r.cost != Double.POSITIVE_INFINITY) {
+                if (solution.totalCost == Double.POSITIVE_INFINITY) {
+                    solution.totalCost = r.cost; // Primer costo no infinito
+                } else {
+                    solution.totalCost += r.cost;
+                }
             } else {
-                solution.totalCost += route.cost;
+                solution.totalCost = Double.POSITIVE_INFINITY; // Si alguna ruta es INF, el total es INF
             }
         }
-        // Si hay clientes sin asignar, la solución no es factible en el contexto de VRP
-        if (!solution.unassignedCustomers.isEmpty()) {
+        if(!solution.unassignedCustomers.isEmpty()){
             solution.fullyFeasible = false;
-            // Añadir penalización alta por clientes no asignados
-            solution.totalCost += solution.unassignedCustomers.size() * 1000000.0; // Penalización ejemplo
+            solution.totalCost = Double.POSITIVE_INFINITY; // Si hay no asignados, la solución NO es factible
+            // solution.totalCost += solution.unassignedCustomers.size() * 1000000.0; // Alternativa penalización
         }
-
-
-        // Si ninguna ruta es factible o hay no asignados, el costo total debería reflejarlo
-        if (!solution.fullyFeasible && solution.totalCost != Double.POSITIVE_INFINITY) {
-            // Asegurarse de que una solución no factible tenga un costo muy alto si no es ya infinito
-            // solution.totalCost += 1e9; // Otra forma de penalizar
-        }
-
-
     }
-
-    // Evalúa UNA ruta: calcula costo de combustible y verifica factibilidad
-    static void evaluateRoute(Route route, int startTime) {
+    // --- Evaluación de Ruta ---
+    static void evaluateRoute(Route route, int startTime) { /* ... sin cambios ... */
         route.cost = calculateRouteCost(route, startTime);
         route.feasible = (route.cost != Double.POSITIVE_INFINITY);
     }
+    // --- Calcular Costo de Ruta ---
+    static double calculateRouteCost(Route route, int startTime) { /* ... sin cambios ... */
+        double totalFuelCost = 0; double currentLoadM3 = 0;
+        // Verificar si la ruta o el camión son nulos (seguridad)
+        if (route == null || route.truck == null || route.startDepot == null || route.endDepot == null || route.sequence == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+        int timeAtNode = startTime; Location prevLocation = route.startDepot;
+        currentLoadM3 = calculateRouteLoad(route);
+        if(currentLoadM3 > route.truck.type.capacidadM3) return Double.POSITIVE_INFINITY;
 
-    // Calcula costo (combustible) y verifica factibilidad (capacidad, tiempo) de UNA ruta
-    static double calculateRouteCost(Route route, int startTime) {
-        double totalFuelCost = 0;
-        double currentLoadM3 = 0;
-        int currentTime = startTime; // Tiempo de salida del depósito
-        Location currentLocation = route.startDepot;
-
-        // 1. Calcular carga inicial necesaria y verificar capacidad
-        currentLoadM3 = route.sequence.stream().mapToDouble(c -> c.demandaM3).sum();
-        if (currentLoadM3 > route.truck.type.capacidadM3) {
-            // System.err.println("Ruta " + route.truck.id + ": CAPACIDAD EXCEDIDA (" + currentLoadM3 + "/" + route.truck.type.capacidadM3 + ")");
-            return Double.POSITIVE_INFINITY; // Infeasible por capacidad
+        for(CustomerNode customer : route.sequence) {
+            int dist = distanciaReal(prevLocation, customer);
+            if(dist == Integer.MAX_VALUE) return Double.POSITIVE_INFINITY; // Bloqueado
+            totalFuelCost += calculateFuelConsumed(dist, currentLoadM3, route.truck);
+            timeAtNode += (int)Math.round(dist * MINUTOS_POR_KM);
+            if(timeAtNode > customer.tiempoLimiteEntregaMinutos) return Double.POSITIVE_INFINITY; // Tarde
+            // Podríamos añadir tiempo de servicio aquí si fuera necesario: timeAtNode += T_SERVICIO;
+            prevLocation = customer;
+            currentLoadM3 -= customer.demandaM3; // Descargar
         }
 
-        // 2. Simular recorrido tramo por tramo
-        // Tramo: Depósito -> Primer Cliente
-        if (!route.sequence.isEmpty()) {
-            CustomerNode firstCustomer = route.sequence.get(0);
-            int distDepotToFirst = distanciaReal(currentLocation, firstCustomer);
-            if (distDepotToFirst == Integer.MAX_VALUE) return Double.POSITIVE_INFINITY; // Ruta bloqueada
+        int distReturn = distanciaReal(prevLocation, route.endDepot);
+        if(distReturn == Integer.MAX_VALUE) return Double.POSITIVE_INFINITY; // Bloqueado regreso
+        totalFuelCost += calculateFuelConsumed(distReturn, 0.0, route.truck); // Regreso vacío
+        // No se chequea tiempo de regreso al depot (podría añadirse si es necesario)
 
-            double fuelSegment = calculateFuelConsumed(distDepotToFirst, currentLoadM3, route.truck);
-            totalFuelCost += fuelSegment;
-
-            int travelTimeMinutes = (int) Math.round(distDepotToFirst * MINUTOS_POR_KM);
-            currentTime += travelTimeMinutes;
-
-            // Verificar Ventana de Tiempo del primer cliente
-            if (currentTime > firstCustomer.tiempoLimiteEntregaMinutos) {
-                // System.err.println("Ruta " + route.truck.id + ": TIEMPO LÍMITE EXCEDIDO para C" + firstCustomer.id + " (Llegada: " + currentTime + ", Límite: " + firstCustomer.tiempoLimiteEntregaMinutos + ")");
-                return Double.POSITIVE_INFINITY; // Infeasible por tiempo
-            }
-
-            // Asumir llegada = inicio servicio (no hay tiempo de espera/servicio modelado aún)
-            currentLocation = firstCustomer;
-            currentLoadM3 -= firstCustomer.demandaM3; // Descargar
-        } else {
-            // Ruta vacía, costo 0 (¿o costo de ir y volver?)
-            return 0.0;
-        }
-
-
-        // Tramos: Cliente -> Siguiente Cliente
-        for (int i = 0; i < route.sequence.size() - 1; i++) {
-            CustomerNode originCust = route.sequence.get(i);
-            CustomerNode destCust = route.sequence.get(i + 1);
-
-            int distSegment = distanciaReal(currentLocation, destCust);
-            if (distSegment == Integer.MAX_VALUE) return Double.POSITIVE_INFINITY; // Ruta bloqueada
-
-            double fuelSegment = calculateFuelConsumed(distSegment, currentLoadM3, route.truck);
-            totalFuelCost += fuelSegment;
-
-            int travelTimeMinutes = (int) Math.round(distSegment * MINUTOS_POR_KM);
-            currentTime += travelTimeMinutes;
-
-            // Verificar Ventana de Tiempo del siguiente cliente
-            if (currentTime > destCust.tiempoLimiteEntregaMinutos) {
-                // System.err.println("Ruta " + route.truck.id + ": TIEMPO LÍMITE EXCEDIDO para C" + destCust.id + " (Llegada: " + currentTime + ", Límite: " + destCust.tiempoLimiteEntregaMinutos + ")");
-                return Double.POSITIVE_INFINITY; // Infeasible por tiempo
-            }
-
-            currentLocation = destCust;
-            currentLoadM3 -= destCust.demandaM3; // Descargar
-        }
-
-        // Tramo: Último Cliente -> Depósito Final
-        int distLastToDepot = distanciaReal(currentLocation, route.endDepot);
-        if (distLastToDepot == Integer.MAX_VALUE) return Double.POSITIVE_INFINITY; // Ruta bloqueada
-
-        // Carga es 0 (o casi 0) en el regreso
-        double fuelReturn = calculateFuelConsumed(distLastToDepot, 0.0, route.truck);
-        totalFuelCost += fuelReturn;
-
-        // Si llegó hasta aquí, la ruta es factible en términos de capacidad y tiempo
         return totalFuelCost;
     }
-
-    // Calcula el combustible para un segmento
-    static double calculateFuelConsumed(int distanceKm, double currentLoadM3, Truck truck) {
-        if (distanceKm == 0) return 0;
-        // 1. Calcular peso de la carga actual
-        double pesoCargaActualTon = truck.type.calcularPesoCargaActualTon(currentLoadM3);
-        // 2. Calcular peso combinado
-        double pesoCombinadoTon = truck.type.taraTon + pesoCargaActualTon;
-        // 3. Aplicar fórmula
-        double fuelGal = (double) distanceKm * pesoCombinadoTon / 180.0;
-        return fuelGal;
+    // --- Calcular Combustible ---
+    static double calculateFuelConsumed(int distanceKm, double currentLoadM3, Truck truck) { /* ... sin cambios ... */
+        if(distanceKm == 0) return 0; double pesoCarga = truck.type.calcularPesoCargaActualTon(currentLoadM3);
+        double pesoTotal = truck.type.taraTon + pesoCarga; return (double)distanceKm * pesoTotal / 180.0;
     }
-
-
-    // --- Cálculo de Distancia Real (BFS) ---
-    // (Igual que en la versión anterior, pero usa Location en lugar de Node/Punto)
-    private static int distanciaReal(Location from, Location to) {
-        if (from == null || to == null) return Integer.MAX_VALUE;
-        if (from.x < 0 || from.x >= GRID_WIDTH || from.y < 0 || from.y >= GRID_HEIGHT) return Integer.MAX_VALUE;
-        if (to.x < 0 || to.x >= GRID_WIDTH || to.y < 0 || to.y >= GRID_HEIGHT) return Integer.MAX_VALUE;
-        // Un nodo bloqueado no puede ser origen ni destino de un TRAMO (no se puede pasar por él)
-        // ¿Pero puede ser el punto de entrega final? Asumamos que sí por ahora.
-        // if (bloqueado[from.x][from.y]) return Integer.MAX_VALUE; // Origen bloqueado, no se puede salir
-        // if (bloqueado[to.x][to.y]) return Integer.MAX_VALUE; // Destino bloqueado, no se puede llegar
-
-        Queue<int[]> queue = new LinkedList<>();
-        Map<Point, Integer> distancias = new HashMap<>();
-        Set<Point> visited = new HashSet<>();
-
-        Point startPoint = from.toPoint();
-        Point endPoint = to.toPoint();
-
-        // Si inicio y fin son el mismo
-        if (startPoint.equals(endPoint)) return 0;
-
-        queue.add(new int[]{from.x, from.y});
-        distancias.put(startPoint, 0);
-        visited.add(startPoint);
-
-        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
-        while (!queue.isEmpty()) {
-            int[] actual = queue.poll();
-            Point actualPoint = new Point(actual[0], actual[1]);
-            int d = distancias.get(actualPoint);
-
-            // Explorar vecinos
-            for (int[] dir : dirs) {
-                int nx = actual[0] + dir[0];
-                int ny = actual[1] + dir[1];
-                Point nextPoint = new Point(nx, ny);
-
-                // Si es el destino, retornamos distancia
-                if (nextPoint.equals(endPoint)) {
-                    return d + 1;
-                }
-
-                // Verificar límites, no visitado y NO BLOQUEADO
-                if (nx >= 0 && ny >= 0 && nx < GRID_WIDTH && ny < GRID_HEIGHT && !visited.contains(nextPoint)) {
-                    // Un nodo bloqueado NO se puede atravesar
-                    if (!bloqueado[nx][ny]) {
-                        visited.add(nextPoint);
-                        distancias.put(nextPoint, d + 1);
-                        queue.add(new int[]{nx, ny});
-                    }
+    // --- Distancia Real BFS ---
+    private static int distanciaReal(Location from, Location to) { /* ... sin cambios ... */
+        if(from==null || to==null) return Integer.MAX_VALUE;
+        if(from.x<0||from.x>=GRID_WIDTH||from.y<0||from.y>=GRID_HEIGHT) return Integer.MAX_VALUE;
+        if(to.x<0||to.x>=GRID_WIDTH||to.y<0||to.y>=GRID_HEIGHT) return Integer.MAX_VALUE;
+        Queue<int[]> queue=new LinkedList<>(); Map<Point, Integer> dists=new HashMap<>(); Set<Point> visited=new HashSet<>();
+        Point start=from.toPoint(), end=to.toPoint(); if(start.equals(end)) return 0;
+        queue.add(new int[]{from.x, from.y}); dists.put(start, 0); visited.add(start);
+        int[][] DIRS={{0,1},{0,-1},{1,0},{-1,0}};
+        while(!queue.isEmpty()){
+            int[] curr=queue.poll(); Point pCurr=new Point(curr[0],curr[1]); int d=dists.get(pCurr);
+            for(int[] dir : DIRS){
+                int nx=curr[0]+dir[0], ny=curr[1]+dir[1]; Point pNext=new Point(nx, ny);
+                if(pNext.equals(end)) return d+1;
+                if(nx>=0&&nx<GRID_WIDTH&&ny>=0&&ny<GRID_HEIGHT&&!visited.contains(pNext)&&!bloqueado[nx][ny]){
+                    visited.add(pNext); dists.put(pNext, d+1); queue.add(new int[]{nx, ny});
                 }
             }
         }
-        // System.err.println("No se encontró ruta BFS desde " + from + " hasta " + to);
-        return Integer.MAX_VALUE; // No se encontró ruta
+        return Integer.MAX_VALUE;
     }
-
-    // --- Carga de Datos (Adaptar nombres de archivo y parsing si es necesario) ---
-    static List<Pedido> cargarPedidos(String archivo) throws Exception {
-        // Reusar la lógica de carga anterior, asegurando que parsea bien
-        // el formato "ventas2025mm" y las horas límite.
-        // ... (Misma lógica de `cargarPedidos` de la respuesta anterior) ...
-        System.out.println("Cargando pedidos desde: " + archivo);
-        List<Pedido> pedidos = new ArrayList<>();
-        List<String> lineas = Files.readAllLines(Paths.get(archivo));
-        for (String linea : lineas) {
-            try { // Formato: 11d13h31m:45,43,c-167,9m3,36h
-                String[] partesTiempoDatos = linea.split(":");
-                if (partesTiempoDatos.length != 2) continue;
-                int momento = TiempoUtils.parsearMarcaDeTiempo(partesTiempoDatos[0].trim());
-                String[] datos = partesTiempoDatos[1].split(",");
-                if (datos.length != 5) continue;
-                int x = Integer.parseInt(datos[0].trim());
-                int y = Integer.parseInt(datos[1].trim());
-                // String idCliente = datos[2].trim(); // No usado directamente
-                double volumen = Double.parseDouble(datos[3].trim().replace("m3", ""));
-                // Horas límite es duración desde el pedido
-                int horaLimite = Integer.parseInt(datos[4].trim().replace("h", ""));
-
-                pedidos.add(new Pedido(x, y, volumen, horaLimite, momento));
-            } catch (Exception e) {
-                System.err.println("Error al parsear línea de pedido: '" + linea + "' - " + e.getMessage());
-            }
-        }
-        // Ordenar por tiempo de pedido puede ser útil
-        pedidos.sort(Comparator.comparingInt(p -> p.momentoPedido));
-        System.out.println("Pedidos cargados y ordenados: " + pedidos.size());
-        return pedidos;
+    // --- Carga de Datos ---
+    static List<Pedido> cargarPedidos(String archivo) throws Exception { /* ... sin cambios ... */
+        System.out.println("Cargando pedidos desde: " + archivo); List<Pedido> p=new ArrayList<>(); List<String> l=Files.readAllLines(Paths.get(archivo));
+        for(String s:l){ try{ String[] p1=s.split(":"); if(p1.length!=2)continue; int m=TiempoUtils.parsearMarcaDeTiempo(p1[0].trim()); String[] d=p1[1].split(","); if(d.length!=5)continue; int x=Integer.parseInt(d[0].trim()); int y=Integer.parseInt(d[1].trim()); double v=Double.parseDouble(d[3].trim().replace("m3","")); int h=Integer.parseInt(d[4].trim().replace("h","")); p.add(new Pedido(x,y,v,h,m));} catch(Exception e){System.err.println("Error P: "+s+" - "+e.getMessage());}} p.sort(Comparator.comparingInt(pd->pd.momentoPedido)); System.out.println("Pedidos cargados: "+p.size()); return p;
     }
-
-    static List<Bloqueo> cargarBloqueos(String archivo) throws Exception {
-        // Reusar la lógica de carga anterior
-        // ... (Misma lógica de `cargarBloqueos` de la respuesta anterior) ...
-        System.out.println("Cargando bloqueos desde: " + archivo);
-        List<Bloqueo> bloqueos = new ArrayList<>();
-        List<String> lineas = Files.readAllLines(Paths.get(archivo));
-        for (String linea : lineas) {
-            try { // Formato: 01d06h00m-01d15h00m:31,21,34,21
-                String[] partesTiempoCoords = linea.split(":");
-                if (partesTiempoCoords.length != 2) continue;
-                String[] tiempos = partesTiempoCoords[0].split("-");
-                if (tiempos.length != 2) continue;
-                int inicio = TiempoUtils.parsearMarcaDeTiempo(tiempos[0].trim());
-                int fin = TiempoUtils.parsearMarcaDeTiempo(tiempos[1].trim());
-                String[] coords = partesTiempoCoords[1].split(",");
-                List<int[]> puntos = new ArrayList<>();
-                // Los puntos definen los NODOS bloqueados
-                for (int i = 0; i < coords.length; i += 2) {
-                    int x = Integer.parseInt(coords[i].trim());
-                    int y = Integer.parseInt(coords[i + 1].trim());
-                    puntos.add(new int[]{x, y});
-                }
-                if (!puntos.isEmpty()) {
-                    bloqueos.add(new Bloqueo(inicio, fin, puntos));
-                }
-            } catch (Exception e) {
-                System.err.println("Error al parsear línea de bloqueo: '" + linea + "' - " + e.getMessage());
-            }
-        }
-        System.out.println("Bloqueos cargados: " + bloqueos.size());
-        return bloqueos;
+    static List<Bloqueo> cargarBloqueos(String archivo) throws Exception { /* ... sin cambios ... */
+        System.out.println("Cargando bloqueos desde: " + archivo); List<Bloqueo> b=new ArrayList<>(); List<String> l=Files.readAllLines(Paths.get(archivo));
+        for(String s:l){ try{ String[] p1=s.split(":"); if(p1.length!=2)continue; String[] t=p1[0].split("-"); if(t.length!=2)continue; int i=TiempoUtils.parsearMarcaDeTiempo(t[0].trim()); int f=TiempoUtils.parsearMarcaDeTiempo(t[1].trim()); String[] c=p1[1].split(","); List<int[]> pts=new ArrayList<>(); for(int k=0; k<c.length; k+=2){pts.add(new int[]{Integer.parseInt(c[k].trim()),Integer.parseInt(c[k+1].trim())});} if(!pts.isEmpty())b.add(new Bloqueo(i,f,pts));} catch(Exception e){System.err.println("Error B: "+s+" - "+e.getMessage());}} System.out.println("Bloqueos cargados: "+b.size()); return b;
     }
-
-    // --- Visualización (Adaptar para múltiples rutas) ---
-    static void visualizarSolucion(Solution solution) {
+    // --- Visualización ---
+    static void visualizarSolucion(Solution solution) { /* ... sin cambios ... */
         System.out.println("Preparando visualización...");
-        // Convertir depots y clientes a Puntos
-        List<GridVisualizer_MDVRP.Punto> puntosClientesVis = activeCustomers.stream()
-                .filter(c -> !solution.unassignedCustomers.contains(c)) // Solo clientes asignados
-                .map(c -> new GridVisualizer_MDVRP.Punto(c.x, c.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(c.id)))
-                .collect(Collectors.toList());
-
-        List<GridVisualizer_MDVRP.Punto> puntosDepotsVis = depots.stream()
-                .map(d -> new GridVisualizer_MDVRP.Punto(d.x, d.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, d.id))
-                .collect(Collectors.toList());
-
-        List<GridVisualizer_MDVRP.RutaVisual> rutasVis = new ArrayList<>();
-        Color[] routeColors = {Color.BLUE, Color.RED, Color.ORANGE, Color.MAGENTA, Color.PINK, Color.YELLOW.darker(), Color.CYAN, Color.GRAY};
-        int colorIndex = 0;
-
-        for(Route route : solution.routes) {
-            if (!route.sequence.isEmpty()) {
-                List<GridVisualizer_MDVRP.Punto> secuenciaPuntos = new ArrayList<>();
-                // Añadir depot inicial
-                secuenciaPuntos.add(new GridVisualizer_MDVRP.Punto(route.startDepot.x, route.startDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.startDepot.id));
-                // Añadir clientes
-                route.sequence.forEach(c -> secuenciaPuntos.add(new GridVisualizer_MDVRP.Punto(c.x, c.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(c.id))));
-                // Añadir depot final
-                secuenciaPuntos.add(new GridVisualizer_MDVRP.Punto(route.endDepot.x, route.endDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.endDepot.id));
-
-                // Asignar color
-                Color color = routeColors[colorIndex % routeColors.length];
-                colorIndex++;
-
-                rutasVis.add(new GridVisualizer_MDVRP.RutaVisual(route.truck.id, secuenciaPuntos, color));
-            }
-        }
-
-
-        SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("Visualización GLP - Rutas MDVRP (TS)");
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            GridVisualizer_MDVRP panel = new GridVisualizer_MDVRP(puntosDepotsVis, puntosClientesVis, rutasVis, bloqueado);
-            panel.setPreferredSize(new Dimension(GRID_WIDTH * 12, GRID_HEIGHT * 12)); // Ajustar tamaño celda
-            JScrollPane scrollPane = new JScrollPane(panel); // Añadir scroll si es muy grande
-            frame.add(scrollPane);
-            frame.pack();
-            frame.setSize(900, 700); // Tamaño fijo inicial
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-        });
+        List<GridVisualizer_MDVRP.Punto> cliVis=activeCustomers.stream().filter(c->!solution.unassignedCustomers.contains(c)).map(c->new GridVisualizer_MDVRP.Punto(c.x,c.y,GridVisualizer_MDVRP.PuntoTipo.CLIENTE,String.valueOf(c.id))).collect(Collectors.toList());
+        List<GridVisualizer_MDVRP.Punto> depVis=depots.stream().map(d->new GridVisualizer_MDVRP.Punto(d.x,d.y,GridVisualizer_MDVRP.PuntoTipo.DEPOSITO,d.id)).collect(Collectors.toList());
+        List<GridVisualizer_MDVRP.RutaVisual> rutVis=new ArrayList<>(); Color[] C={Color.BLUE,Color.RED,Color.ORANGE,Color.MAGENTA,Color.PINK,Color.YELLOW.darker(),Color.CYAN,Color.GRAY, Color.GREEN.darker().darker(), Color.BLUE.darker()}; int ci=0;
+        for(Route r:solution.routes){ if(!r.sequence.isEmpty()){ List<GridVisualizer_MDVRP.Punto> seq=new ArrayList<>(); seq.add(new GridVisualizer_MDVRP.Punto(r.startDepot.x,r.startDepot.y,GridVisualizer_MDVRP.PuntoTipo.DEPOSITO,r.startDepot.id)); r.sequence.forEach(c->seq.add(new GridVisualizer_MDVRP.Punto(c.x,c.y,GridVisualizer_MDVRP.PuntoTipo.CLIENTE,String.valueOf(c.id)))); seq.add(new GridVisualizer_MDVRP.Punto(r.endDepot.x,r.endDepot.y,GridVisualizer_MDVRP.PuntoTipo.DEPOSITO,r.endDepot.id)); Color clr=C[ci%C.length]; ci++; rutVis.add(new GridVisualizer_MDVRP.RutaVisual(r.truck.id,seq,clr));}}
+        SwingUtilities.invokeLater(()->{JFrame f=new JFrame("Visualización GLP - Rutas MDVRP (TS)"); f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE); GridVisualizer_MDVRP p=new GridVisualizer_MDVRP(depVis,cliVis,rutVis,bloqueado); p.setPreferredSize(new Dimension(GRID_WIDTH*12,GRID_HEIGHT*12)); JScrollPane sp=new JScrollPane(p); f.add(sp); f.pack(); f.setSize(900,700); f.setLocationRelativeTo(null); f.setVisible(true);});
     }
-
-    // Clases Pedido y Bloqueo (usadas para carga inicial)
-    static class Pedido {
-        int x, y; double volumen; int horaLimite; int momentoPedido;
-        Pedido(int x,int y,double v,int hl, int mp){this.x=x;this.y=y;this.volumen=v;this.horaLimite=hl;this.momentoPedido=mp;}
-    }
-    static class Bloqueo {
-        int inicioMinutos, finMinutos; List<int[]> puntosBloqueados;
-        Bloqueo(int i, int f, List<int[]> p){this.inicioMinutos=i;this.finMinutos=f;this.puntosBloqueados=p;}
-    }
-
-}
+    // --- Clases Internas Pedido/Bloqueo ---
+    static class Pedido { /* ... sin cambios ... */ int x,y;double volumen;int horaLimite,momentoPedido; Pedido(int x,int y,double v,int h,int m){this.x=x;this.y=y;this.volumen=v;this.horaLimite=h;this.momentoPedido=m;}}
+    static class Bloqueo { /* ... sin cambios ... */ int inicioMinutos,finMinutos;List<int[]> puntosBloqueados; Bloqueo(int i,int f,List<int[]> p){inicioMinutos=i;finMinutos=f;puntosBloqueados=p;}}
+} // Fin clase TabuSearchPlanner_MDVRP

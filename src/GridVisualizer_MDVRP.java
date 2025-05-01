@@ -4,37 +4,23 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Visualizador para soluciones MDVRP (Multi-Depot Vehicle Routing Problem).
- * Muestra depósitos, clientes, múltiples rutas de camiones con colores distintos
- * y las celdas bloqueadas.
- */
 public class GridVisualizer_MDVRP extends JPanel {
 
-    // --- Constantes de Dibujo ---
-    // Usar las mismas dimensiones que el planificador principal
-    // Asegúrate de que TabuSearchPlanner_MDVRP esté compilado y accesible
-    // o pasa estas constantes en el constructor.
+    // Constantes
     static final int GRID_WIDTH = TabuSearchPlanner_MDVRP.GRID_WIDTH;
     static final int GRID_HEIGHT = TabuSearchPlanner_MDVRP.GRID_HEIGHT;
-    static final int CELL_SIZE = 12; // Tamaño de celda en píxeles (ajustable)
-    static final int NODE_SIZE = CELL_SIZE - 4; // Tamaño para dibujar nodos (un poco más pequeño que la celda)
-    static final int NODE_OFFSET = 2; // Offset para centrar nodos
+    static final int CELL_SIZE = 12;
+    static final int NODE_SIZE = CELL_SIZE - 4;
+    static final int NODE_OFFSET = 2;
 
-    // --- Tipos de Puntos ---
-    // Necesario que coincida con la definición en TabuSearchPlanner_MDVRP si es pública allí,
-    // o definirla aquí si es independiente.
     enum PuntoTipo {
         DEPOSITO,
         CLIENTE
     }
 
-    // --- Estructuras de Datos para Visualización ---
-
-
     public static class BloqueoEtiquetado {
         int x, y;
-        String etiqueta; // O tramo, o truckId
+        String etiqueta;
 
         BloqueoEtiquetado(int x, int y, String etiqueta) {
             this.x = x;
@@ -55,14 +41,11 @@ public class GridVisualizer_MDVRP extends JPanel {
             return Objects.hash(x, y, etiqueta);
         }
     }
-    /**
-     * Representa un punto en el grid (Depósito o Cliente).
-     * Debe coincidir con la clase usada en TabuSearchPlanner_MDVRP.visualizarSolucion
-     */
+
     public static class Punto {
         int x, y;
         PuntoTipo tipo;
-        String label; // ID del Depósito o Cliente/Parte
+        String label;
 
         public Punto(int x, int y, PuntoTipo tipo, String label) {
             this.x = x;
@@ -76,30 +59,23 @@ public class GridVisualizer_MDVRP extends JPanel {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Punto punto = (Punto) o;
-            // Considerar que dos puntos son iguales si son la misma ubicación física
-            // Independientemente del label o tipo para evitar sobreponer nodos visualmente
             // return x == punto.x && y == punto.y;
-            // O si se necesita distinción completa:
             return x == punto.x && y == punto.y && tipo == punto.tipo && Objects.equals(label, punto.label);
         }
 
         @Override
         public int hashCode() {
             // return Objects.hash(x, y); // Basado solo en ubicación
-            // O basado en todo:
+            // O basado en todo
             return Objects.hash(x, y, tipo, label);
         }
         @Override
         public String toString() { return label + "@(" + x + "," + y + ")"; }
     }
 
-    /**
-     * Representa una ruta completa para ser dibujada.
-     * Debe coincidir con la clase usada en TabuSearchPlanner_MDVRP.visualizarSolucion
-     */
     public static class RutaVisual {
         String truckId;
-        List<Punto> secuenciaCompleta; // Incluye Depósito inicial y final
+        List<Punto> secuenciaCompleta;
         Color color;
 
         public RutaVisual(String truckId, List<Punto> secuencia, Color color) {
@@ -109,21 +85,18 @@ public class GridVisualizer_MDVRP extends JPanel {
         }
     }
 
-    // --- Atributos del Panel ---
     private final List<Punto> depots;
-    private final List<Punto> customers; // Clientes *asignados*
+    private final List<Punto> customers;
     private final List<RutaVisual> routesToDraw;
     private final boolean[][] matrizBloqueado;
     private final List<Punto> puntosBloqueadosGrid;
     private final List<BloqueoEtiquetado> bloqueosEnRutas;
 
-    // --- Constructor ---
     public GridVisualizer_MDVRP(List<Punto> depots, List<Punto> customers, List<RutaVisual> routes, boolean[][] bloqueadoActual) {
-        // Usar operador ternario para compatibilidad con Java < 9
         this.depots = (depots != null) ? depots : new ArrayList<>();
         this.customers = (customers != null) ? customers : new ArrayList<>();
         this.routesToDraw = (routes != null) ? routes : new ArrayList<>();
-        this.matrizBloqueado = bloqueadoActual; // Puede ser null
+        this.matrizBloqueado = bloqueadoActual;
 
         this.puntosBloqueadosGrid = new ArrayList<>();
         this.bloqueosEnRutas = new ArrayList<>();
@@ -132,7 +105,6 @@ public class GridVisualizer_MDVRP extends JPanel {
             for (int i = 0; i < GRID_WIDTH; i++) {
                 for (int j = 0; j < GRID_HEIGHT; j++) {
                     if (this.matrizBloqueado[i][j]) {
-                        // Usar null para tipo/label ya que solo es para pintar la celda
                         puntosBloqueadosGrid.add(new Punto(i, j, null, "Bloqueado"));
                     }
                 }
@@ -141,7 +113,6 @@ public class GridVisualizer_MDVRP extends JPanel {
         setBackground(Color.WHITE);
     }
 
-    // --- Método Principal de Dibujo ---
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -152,12 +123,10 @@ public class GridVisualizer_MDVRP extends JPanel {
 
         drawGrid(g2d);
         drawBlockedCells(g2d);
-        drawRoutes(g2d); // Dibuja rutas y detecta bloqueos en ellas
+        drawRoutes(g2d);
         drawNodes(g2d);
-        drawBlockedRouteLabels(g2d); // Dibuja etiquetas DEPUÉS de nodos/rutas
+        drawBlockedRouteLabels(g2d);
     }
-
-    // --- Métodos Auxiliares de Dibujo ---
 
     private void drawGrid(Graphics2D g) {
         g.setColor(new Color(230, 230, 230));
@@ -175,7 +144,7 @@ public class GridVisualizer_MDVRP extends JPanel {
     }
 
     private void drawRoutes(Graphics2D g) {
-        Set<Point> labeledBlockedCellsThisPaint = new HashSet<>(); // Evitar múltiples etiquetas por celda
+        Set<Point> labeledBlockedCellsThisPaint = new HashSet<>();
 
         for (RutaVisual ruta : routesToDraw) {
             g.setColor(ruta.color);
@@ -186,7 +155,7 @@ public class GridVisualizer_MDVRP extends JPanel {
             for (int i = 0; i < secuencia.size() - 1; i++) {
                 Punto origen = secuencia.get(i);
                 Punto destino = secuencia.get(i + 1);
-                if (origen == null || destino == null) continue; // Seguridad
+                if (origen == null || destino == null) continue;
 
                 List<Point> caminoReal = encontrarCaminoBFS(origen, destino);
 
@@ -195,7 +164,6 @@ public class GridVisualizer_MDVRP extends JPanel {
                     for (Point pActual : caminoReal) {
                         g.drawLine(pPrev.x * CELL_SIZE + CELL_SIZE / 2, pPrev.y * CELL_SIZE + CELL_SIZE / 2,
                                 pActual.x * CELL_SIZE + CELL_SIZE / 2, pActual.y * CELL_SIZE + CELL_SIZE / 2);
-                        // Etiquetar bloqueo si se encuentra en el camino
                         if (esBloqueado(pActual.x, pActual.y)) {
                             if (!labeledBlockedCellsThisPaint.contains(pActual)) {
                                 bloqueosEnRutas.add(new BloqueoEtiquetado(pActual.x, pActual.y, ruta.truckId));
@@ -204,54 +172,50 @@ public class GridVisualizer_MDVRP extends JPanel {
                         }
                         pPrev = pActual;
                     }
-                } else { // Si no hay camino BFS
+                } else {
                     Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{3}, 0);
                     g.setStroke(dashed); g.setColor(Color.MAGENTA);
                     g.drawLine(origen.x * CELL_SIZE + CELL_SIZE / 2, origen.y * CELL_SIZE + CELL_SIZE / 2,
                             destino.x * CELL_SIZE + CELL_SIZE / 2, destino.y * CELL_SIZE + CELL_SIZE / 2);
-                    g.setStroke(new BasicStroke(1.5f)); g.setColor(ruta.color); // Restaurar
+                    g.setStroke(new BasicStroke(1.5f)); g.setColor(ruta.color);
                 }
             }
         }
     }
 
     private void drawNodes(Graphics2D g) {
-        Font nodeFont = new Font("Arial", Font.BOLD, 9); // Ligeramente más grande
+        Font nodeFont = new Font("Arial", Font.BOLD, 9);
         g.setFont(nodeFont);
         FontMetrics fm = g.getFontMetrics();
-        Set<Point> drawnLocations = new HashSet<>(); // Para no sobre-dibujar nodos en misma celda
+        Set<Point> drawnLocations = new HashSet<>();
 
-        // Dibujar Depósitos
-        g.setColor(new Color(0, 100, 0)); // Verde más oscuro
+        g.setColor(new Color(0, 100, 0));
         for (Punto depot : depots) {
             Point loc = new Point(depot.x, depot.y);
-            if (drawnLocations.contains(loc)) continue; // Evitar sobre-dibujar si cliente está en depot
+            if (drawnLocations.contains(loc)) continue;
 
             g.fillRect(depot.x * CELL_SIZE + NODE_OFFSET, depot.y * CELL_SIZE + NODE_OFFSET,
-                    NODE_SIZE, NODE_SIZE); // Cuadrado
+                    NODE_SIZE, NODE_SIZE);
             g.setColor(Color.WHITE);
             int labelWidth = fm.stringWidth(depot.label);
             g.drawString(depot.label, depot.x * CELL_SIZE + (CELL_SIZE - labelWidth) / 2,
                     depot.y * CELL_SIZE + CELL_SIZE / 2 + fm.getAscent() / 2 - 1);
-            g.setColor(new Color(0, 100, 0)); // Reset color
+            g.setColor(new Color(0, 100, 0));
             drawnLocations.add(loc);
         }
 
-        // Dibujar Clientes (solo los asignados que llegaron en la lista)
         g.setColor(Color.RED);
         for (Punto customer : customers) {
             Point loc = new Point(customer.x, customer.y);
-            // No dibujar si ya hay un depot aquí (o manejar superposición)
             // if (drawnLocations.contains(loc)) continue; // Comentar si queremos ver clientes encima de depots
 
             g.fillOval(customer.x * CELL_SIZE + NODE_OFFSET, customer.y * CELL_SIZE + NODE_OFFSET,
-                    NODE_SIZE, NODE_SIZE); // Círculo
+                    NODE_SIZE, NODE_SIZE);
             g.setColor(Color.BLACK);
-            // Etiqueta ID Parte Cliente (puede ser largo si hay muchos)
-            String lbl = customer.label; // Usar ID de parte
-            // Opcional: acortar etiqueta si es muy larga
-            // if (lbl.length() > 3) lbl = "C" + lbl; // Ejemplo
-            g.drawString(lbl, customer.x * CELL_SIZE + NODE_OFFSET + NODE_SIZE + 2, customer.y * CELL_SIZE + NODE_OFFSET + NODE_SIZE/2); // Al lado
+            String lbl = customer.label;
+            // Acortar etiqueta si es muy larga
+            // if (lbl.length() > 3) lbl = "C" + lbl;
+            g.drawString(lbl, customer.x * CELL_SIZE + NODE_OFFSET + NODE_SIZE + 2, customer.y * CELL_SIZE + NODE_OFFSET + NODE_SIZE/2);
             g.setColor(Color.RED);
             drawnLocations.add(loc);
         }
@@ -259,9 +223,8 @@ public class GridVisualizer_MDVRP extends JPanel {
 
     private void drawBlockedRouteLabels(Graphics2D g) {
         g.setColor(Color.ORANGE);
-        g.setFont(new Font("Arial", Font.BOLD, 8)); // Un poco más pequeño
+        g.setFont(new Font("Arial", Font.BOLD, 8));
         FontMetrics fm = g.getFontMetrics();
-        // Agrupar etiquetas por celda para mostrarlas mejor si hay múltiples camiones
         Map<Point, List<String>> labelsByLocation = new HashMap<>();
         for (BloqueoEtiquetado be : bloqueosEnRutas) {
             Point p = new Point(be.x, be.y);
@@ -270,14 +233,12 @@ public class GridVisualizer_MDVRP extends JPanel {
 
         for (Map.Entry<Point, List<String>> entry : labelsByLocation.entrySet()) {
             Point location = entry.getKey();
-            String label = String.join(",", entry.getValue()); // Unir IDs si hay varios
+            String label = String.join(",", entry.getValue());
             int labelWidth = fm.stringWidth(label);
             g.drawString(label, location.x * CELL_SIZE + (CELL_SIZE - labelWidth) / 2,
-                    location.y * CELL_SIZE + fm.getAscent()); // Encima del bloqueo
+                    location.y * CELL_SIZE + fm.getAscent());
         }
     }
-
-    // --- Lógica Auxiliar ---
 
     private boolean esBloqueado(int x, int y) {
         if (matrizBloqueado == null || x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
@@ -287,7 +248,6 @@ public class GridVisualizer_MDVRP extends JPanel {
     }
 
     private List<Point> encontrarCaminoBFS(Punto from, Punto to) {
-        // BFS para encontrar el camino celda a celda (igual que antes)
         if (from == null || to == null) return null;
         Point startPoint = new Point(from.x, from.y);
         Point endPoint = new Point(to.x, to.y);
@@ -311,7 +271,6 @@ public class GridVisualizer_MDVRP extends JPanel {
                 int ny = currentPoint.y + dir[1];
                 Point nextPoint = new Point(nx, ny);
                 if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT && !visited.contains(nextPoint)) {
-                    // Importante: Usar la matriz de bloqueo del visualizador
                     if (!esBloqueado(nx, ny)) {
                         visited.add(nextPoint);
                         predecesores.put(nextPoint, currentPoint);

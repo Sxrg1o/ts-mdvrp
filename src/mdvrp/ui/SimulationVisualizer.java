@@ -22,7 +22,7 @@ public class SimulationVisualizer {
 
         List<GridVisualizer.Punto> cliVis_temp = new ArrayList<>();
         List<GridVisualizer.RutaVisual> rutVis_temp = new ArrayList<>();
-        Set<Integer> uniquePartIdsInRoutes = new HashSet<>(); // Para evitar duplicar puntos de cliente
+        Set<Integer> uniquePartIdsInRoutes = new HashSet<>();
 
         Color[] C = {Color.BLUE, Color.RED, Color.ORANGE, Color.MAGENTA, Color.PINK, Color.YELLOW.darker(), Color.CYAN, Color.GRAY, Color.GREEN.darker().darker(), Color.BLUE.darker(), Color.RED.darker(), Color.ORANGE.darker()};
         int ci = 0;
@@ -38,7 +38,7 @@ public class SimulationVisualizer {
                     // Puntos intermedios (Clientes)
                     route.sequence.forEach(part -> {
                         seq.add(new GridVisualizer.Punto(part.x, part.y, GridVisualizer.PuntoTipo.CLIENTE, String.valueOf(part.partId)));
-                        uniquePartIdsInRoutes.add(part.partId); // Registrar ID para la lista de clientes
+                        uniquePartIdsInRoutes.add(part.partId);
                     });
                     // Punto final (Depot)
                     seq.add(new GridVisualizer.Punto(route.endDepot.x, route.endDepot.y, GridVisualizer.PuntoTipo.DEPOSITO, route.endDepot.id));
@@ -61,10 +61,10 @@ public class SimulationVisualizer {
         // O MÁS SIMPLE: Crear los puntos directamente de las rutas (puede haber redundancia si no usamos Set<Punto>)
 
         // Vamos a construir cliVis_temp directamente de las partes en las rutas visualizadas
-        Map<Integer, CustomerPart> allPartsEver = new HashMap<>(); // Necesitaríamos poblar esto al crear las partes
+        Map<Integer, CustomerPart> allPartsEver = new HashMap<>();
         // Asumiendo que tenemos acceso a las partes:
         // cliVis_temp = uniquePartIdsInRoutes.stream()
-        //           .map(partId -> findCustomerPartById(partId)) // Necesitaríamos esta función
+        //           .map(partId -> findCustomerPartById(partId))
         //           .filter(Objects::nonNull)
         //           .map(part -> new GridVisualizer_MDVRP.Punto(
         //                   part.x, part.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(part.partId)))
@@ -72,25 +72,23 @@ public class SimulationVisualizer {
 
         // Alternativa más simple (puede duplicar localizaciones si varios partId están en el mismo x,y):
         cliVis_temp = rutVis_temp.stream()
-                .flatMap(rutaVisual -> rutaVisual.secuenciaCompleta.stream()) // Obtener todos los puntos de todas las rutas
-                .filter(punto -> punto.tipo == GridVisualizer.PuntoTipo.CLIENTE) // Filtrar solo los clientes
-                .distinct() // Eliminar duplicados exactos (mismo objeto Punto)
+                .flatMap(rutaVisual -> rutaVisual.secuenciaCompleta.stream())
+                .filter(punto -> punto.tipo == GridVisualizer.PuntoTipo.CLIENTE)
+                .distinct()
                 .collect(Collectors.toList());
 
 
-        // Depósitos (sin cambios)
         List<GridVisualizer.Punto> depVis_temp = depots.stream()
                 .map(d -> new GridVisualizer.Punto(d.x, d.y, GridVisualizer.PuntoTipo.DEPOSITO, d.id))
                 .collect(Collectors.toList());
 
         final List<GridVisualizer.Punto> finalDepVis = depVis_temp;
-        final List<GridVisualizer.Punto> finalCliVis = cliVis_temp; // Usar la lista derivada
-        final List<GridVisualizer.RutaVisual> finalRutVis = rutVis_temp; // Usar la lista construida
+        final List<GridVisualizer.Punto> finalCliVis = cliVis_temp;
+        final List<GridVisualizer.RutaVisual> finalRutVis = rutVis_temp;
 
         if (finalRutVis.isEmpty()) {
             System.out.println("Visualizador: No hay rutas asignadas/activas en los camiones para mostrar.");
-            // Decidir si mostrar el panel vacío o no hacer nada
-            // return; // Salir si no hay nada que mostrar?
+            // return; // Salir si no hay nada que mostrar
         } else {
             System.out.println("Visualizador: Mostrando " + finalRutVis.size() + " rutas activas/últimas asignadas.");
         }
@@ -108,63 +106,5 @@ public class SimulationVisualizer {
             f.setLocationRelativeTo(null);
             f.setVisible(true);
         });
-
-        /*if (solution == null) {
-            System.out.println("Se mostrará ");
-            return;
-        }
-
-        List<GridVisualizer_MDVRP.Punto> cliVis_temp;
-        if (solution.routes != null) {
-            cliVis_temp = solution.routes.stream()
-                    .filter(route -> route.sequence != null && !route.sequence.isEmpty())
-                    .flatMap(route -> route.sequence.stream())
-                    .map(part -> new GridVisualizer_MDVRP.Punto(
-                            part.x,
-                            part.y,
-                            GridVisualizer_MDVRP.PuntoTipo.CLIENTE,
-                            String.valueOf(part.partId)))
-                    .distinct()
-                    .collect(Collectors.toList());
-        } else {
-            cliVis_temp = new ArrayList<>();
-        }
-
-        List<GridVisualizer_MDVRP.Punto> depVis_temp = depots.stream()
-                .map(d -> new GridVisualizer_MDVRP.Punto(d.x, d.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, d.id))
-                .collect(Collectors.toList());
-
-        List<GridVisualizer_MDVRP.RutaVisual> rutVis_temp = new ArrayList<>();
-        Color[] C = {Color.BLUE, Color.RED, Color.ORANGE, Color.MAGENTA, Color.PINK, Color.YELLOW.darker(), Color.CYAN, Color.GRAY, Color.GREEN.darker().darker(), Color.BLUE.darker(), Color.RED.darker(), Color.ORANGE.darker()};
-        int ci = 0;
-
-        if (solution.routes != null) {
-            for (PlannedRoute route : solution.routes) {
-                if (route.sequence != null && !route.sequence.isEmpty()) {
-                    List<GridVisualizer_MDVRP.Punto> seq = new ArrayList<>();
-                    seq.add(new GridVisualizer_MDVRP.Punto(route.startDepot.x, route.startDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.startDepot.id));
-                    route.sequence.forEach(part -> seq.add(new GridVisualizer_MDVRP.Punto(part.x, part.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(part.partId))));
-                    seq.add(new GridVisualizer_MDVRP.Punto(route.endDepot.x, route.endDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.endDepot.id));
-                    Color clr = C[ci % C.length]; ci++;
-                    rutVis_temp.add(new GridVisualizer_MDVRP.RutaVisual(route.truck.id, seq, clr));
-                }
-            }
-        }
-
-        final List<GridVisualizer_MDVRP.Punto> finalDepVis = depVis_temp;
-        final List<GridVisualizer_MDVRP.Punto> finalCliVis = cliVis_temp;
-        final List<GridVisualizer_MDVRP.RutaVisual> finalRutVis = rutVis_temp;
-
-        SwingUtilities.invokeLater(() -> {
-            JFrame f = new JFrame("Visualización GLP - Rutas MDVRP (TS)");
-            f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            GridVisualizer_MDVRP p = new GridVisualizer_MDVRP(finalDepVis, finalCliVis, finalRutVis, blockedNodes);
-            p.setPreferredSize(new Dimension(GRID_WIDTH * 12 + 50, GRID_HEIGHT * 12 + 50));
-            JScrollPane sp = new JScrollPane(p);
-            f.add(sp);
-            f.setSize(900, 700);
-            f.setLocationRelativeTo(null);
-            f.setVisible(true);
-        });*/
     }
 }

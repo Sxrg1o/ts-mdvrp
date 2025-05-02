@@ -4,7 +4,9 @@ import java.util.Objects;
 
 public class Depot extends Location {
 
-    public String id; public double capacidadActualM3; public final double capacidadMaximaM3;
+    public String id;
+    public double capacidadActualM3;
+    public final double capacidadMaximaM3;
     public Depot(String id, int x, int y, double capMax) {
         super(x, y); this.id = id;
         this.capacidadMaximaM3 = capMax;

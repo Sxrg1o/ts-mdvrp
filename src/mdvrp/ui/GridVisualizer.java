@@ -9,14 +9,14 @@ import java.util.List;
 
 public class GridVisualizer extends JPanel {
 
-    // Constantes (Acceden a GlobalState correctamente)
+    // Constantes
     static final int GRID_WIDTH = GlobalState.GRID_WIDTH;
     static final int GRID_HEIGHT = GlobalState.GRID_HEIGHT;
     static final int CELL_SIZE = 12;
     static final int NODE_SIZE = CELL_SIZE - 4;
     static final int NODE_OFFSET = 2;
 
-    // Enum y Clases Anidadas (públicas para ser usadas por SimulationVisualizer si es necesario)
+    // Enum y Clases Anidadas
     public enum PuntoTipo {
         DEPOSITO,
         CLIENTE
@@ -49,7 +49,7 @@ public class GridVisualizer extends JPanel {
 
     // Representa un punto notable en el grid (Depot o Cliente)
     public static class Punto {
-        public final int x, y; // Hacer final si no cambian después de creación
+        public final int x, y;
         public final PuntoTipo tipo;
         public final String label;
 
@@ -71,7 +71,6 @@ public class GridVisualizer extends JPanel {
 
         @Override
         public int hashCode() {
-            // Coherente con equals
             return Objects.hash(x, y, tipo, label);
         }
         @Override
@@ -80,14 +79,13 @@ public class GridVisualizer extends JPanel {
 
     // Representa una ruta completa a dibujar para un camión
     public static class RutaVisual {
-        public final String truckId; // Hacer final
+        public final String truckId;
         // Lista de Puntos (Depots/Clientes) que definen los hitos de la ruta
-        public final List<Punto> secuenciaCompleta; // Hacer final, lista inmutable?
-        public final Color color; // Hacer final
+        public final List<Punto> secuenciaCompleta;
+        public final Color color;
 
         public RutaVisual(String truckId, List<Punto> secuencia, Color color) {
             this.truckId = truckId;
-            // Crear copia defensiva para asegurar inmutabilidad si se desea
             this.secuenciaCompleta = new ArrayList<>(secuencia);
             this.color = color;
         }
@@ -103,27 +101,25 @@ public class GridVisualizer extends JPanel {
 
     // Constructor (Corregido el nombre)
     public GridVisualizer(List<Punto> depots, List<Punto> customers, List<RutaVisual> routes, boolean[][] bloqueadoActual) {
-        this.depots = (depots != null) ? new ArrayList<>(depots) : new ArrayList<>(); // Copias defensivas
-        this.customers = (customers != null) ? new ArrayList<>(customers) : new ArrayList<>(); // Copias defensivas
-        this.routesToDraw = (routes != null) ? new ArrayList<>(routes) : new ArrayList<>(); // Copias defensivas
-        this.matrizBloqueado = bloqueadoActual; // Referencia directa está bien aquí si se actualiza externamente
+        this.depots = (depots != null) ? new ArrayList<>(depots) : new ArrayList<>();
+        this.customers = (customers != null) ? new ArrayList<>(customers) : new ArrayList<>();
+        this.routesToDraw = (routes != null) ? new ArrayList<>(routes) : new ArrayList<>();
+        this.matrizBloqueado = bloqueadoActual;
 
         this.puntosBloqueadosGrid = new ArrayList<>();
-        this.bloqueosEnRutas = new ArrayList<>(); // Se limpia en cada paint
+        this.bloqueosEnRutas = new ArrayList<>();
 
-        // Precalcular las celdas bloqueadas para dibujarlas eficientemente
         if (this.matrizBloqueado != null) {
             for (int i = 0; i < GRID_WIDTH; i++) {
                 for (int j = 0; j < GRID_HEIGHT; j++) {
                     if (this.matrizBloqueado[i][j]) {
-                        // Usamos nuestro propio Punto, tipo null está bien
                         puntosBloqueadosGrid.add(new Punto(i, j, null, "Bloqueado"));
                     }
                 }
             }
         }
         setBackground(Color.WHITE);
-        setPreferredSize(new Dimension(GRID_WIDTH * CELL_SIZE + 1, GRID_HEIGHT * CELL_SIZE + 1)); // Tamaño preferido
+        setPreferredSize(new Dimension(GRID_WIDTH * CELL_SIZE + 1, GRID_HEIGHT * CELL_SIZE + 1));
     }
 
     @Override
@@ -161,11 +157,11 @@ public class GridVisualizer extends JPanel {
     }
 
     private void drawRoutes(Graphics2D g) {
-        Set<Point> labeledBlockedCellsThisPaint = new HashSet<>(); // Para no etiquetar la misma celda varias veces por pasada
+        Set<Point> labeledBlockedCellsThisPaint = new HashSet<>();
 
         for (RutaVisual ruta : routesToDraw) {
             g.setColor(ruta.color);
-            g.setStroke(new BasicStroke(1.5f)); // Grosor de línea
+            g.setStroke(new BasicStroke(1.5f));
             List<Punto> secuencia = ruta.secuenciaCompleta;
             if (secuencia == null || secuencia.size() < 2) continue;
 
@@ -207,7 +203,7 @@ public class GridVisualizer extends JPanel {
                     g.setStroke(dashed); g.setColor(Color.MAGENTA);
                     g.drawLine(origen.x * CELL_SIZE + CELL_SIZE / 2, origen.y * CELL_SIZE + CELL_SIZE / 2,
                             destino.x * CELL_SIZE + CELL_SIZE / 2, destino.y * CELL_SIZE + CELL_SIZE / 2);
-                    g.setStroke(originalStroke); g.setColor(originalColor); // Restaurar
+                    g.setStroke(originalStroke); g.setColor(originalColor);
                 }
             }
         }
@@ -227,26 +223,26 @@ public class GridVisualizer extends JPanel {
             //if (drawnLocations.contains(loc)) continue;
 
             g.fillRect(depot.x * CELL_SIZE + NODE_OFFSET, depot.y * CELL_SIZE + NODE_OFFSET,
-                    NODE_SIZE, NODE_SIZE); // Cuadrado
-            g.setColor(Color.WHITE); // Texto blanco
+                    NODE_SIZE, NODE_SIZE);
+            g.setColor(Color.WHITE);
             int labelWidth = fm.stringWidth(depot.label);
             // Centrar texto
             g.drawString(depot.label, depot.x * CELL_SIZE + (CELL_SIZE - labelWidth) / 2,
                     depot.y * CELL_SIZE + CELL_SIZE / 2 + fm.getAscent() / 2 - 1);
-            g.setColor(new Color(0, 100, 0)); // Volver a verde
+            g.setColor(new Color(0, 100, 0));
             // drawnLocations.add(loc);
         }
 
         // Dibujar Clientes (después, para que queden encima si coinciden)
-        g.setColor(Color.BLUE); // Cambiado a Azul para clientes
+        g.setColor(Color.RED); // Cambiado a Azul para clientes
         for (Punto customer : customers) {
             g.fillOval(customer.x * CELL_SIZE + NODE_OFFSET, customer.y * CELL_SIZE + NODE_OFFSET,
-                    NODE_SIZE, NODE_SIZE); // Círculo
-            g.setColor(Color.BLACK); // Texto negro cerca del nodo
-            String lbl = customer.label; // Usar etiqueta (ID de parte)
+                    NODE_SIZE, NODE_SIZE);
+            g.setColor(Color.BLACK);
+            String lbl = customer.label;
             // Dibujar etiqueta al lado
             g.drawString(lbl, customer.x * CELL_SIZE + CELL_SIZE + 2 , customer.y * CELL_SIZE + CELL_SIZE/2 + fm.getAscent()/2);
-            g.setColor(Color.BLUE); // Volver a azul
+            g.setColor(Color.RED);
         }
     }
 
@@ -265,20 +261,18 @@ public class GridVisualizer extends JPanel {
         // Dibujar etiquetas agrupadas
         for (Map.Entry<Point, List<String>> entry : labelsByLocation.entrySet()) {
             Point location = entry.getKey();
-            // Unir IDs con comas si varios camiones pasan por la misma celda bloqueada
-            String label = String.join(",", new HashSet<>(entry.getValue())); // Usar Set para evitar duplicados del mismo camión
+            String label = String.join(",", new HashSet<>(entry.getValue()));
             int labelWidth = fm.stringWidth(label);
             // Dibujar etiqueta encima de la celda bloqueada
             g.drawString(label, location.x * CELL_SIZE + (CELL_SIZE - labelWidth) / 2,
-                    location.y * CELL_SIZE + fm.getAscent()); // Posición Y ajustada
+                    location.y * CELL_SIZE + fm.getAscent());
         }
     }
 
     // Verifica si una celda está bloqueada (usando la matriz actual)
     private boolean esBloqueado(int x, int y) {
-        // Chequeo de límites por seguridad
         if (matrizBloqueado == null || x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
-            return true; // Considerar fuera de límites como bloqueado para BFS
+            return true;
         }
         return matrizBloqueado[x][y];
     }
@@ -289,29 +283,27 @@ public class GridVisualizer extends JPanel {
         Point startPoint = new Point(from.x, from.y);
         Point endPoint = new Point(to.x, to.y);
 
-        if (startPoint.equals(endPoint)) return new ArrayList<>(); // Ya está en el destino
+        if (startPoint.equals(endPoint)) return new ArrayList<>();
 
         Queue<Point> queue = new LinkedList<>();
-        Map<Point, Point> predecesores = new HashMap<>(); // Para reconstruir el camino
+        Map<Point, Point> predecesores = new HashMap<>();
         Set<Point> visited = new HashSet<>();
 
         queue.add(startPoint);
         visited.add(startPoint);
-        predecesores.put(startPoint, null); // Inicio no tiene predecesor
+        predecesores.put(startPoint, null);
 
-        int[][] dirs = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}}; // Movimientos posibles
+        int[][] dirs = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
         boolean found = false;
 
         while (!queue.isEmpty()) {
             Point currentPoint = queue.poll();
 
-            // ¿Llegamos al destino?
             if (currentPoint.equals(endPoint)) {
                 found = true;
-                break; // Salir del bucle BFS
+                break;
             }
 
-            // Explorar vecinos
             for (int[] dir : dirs) {
                 int nx = currentPoint.x + dir[0];
                 int ny = currentPoint.y + dir[1];
@@ -319,13 +311,12 @@ public class GridVisualizer extends JPanel {
 
                 // Validar límites y si ya fue visitado
                 if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT && !visited.contains(nextPoint)) {
-                    // Validar si la celda NO está bloqueada
                     if (!esBloqueado(nx, ny)) {
                         visited.add(nextPoint);
-                        predecesores.put(nextPoint, currentPoint); // Guardar de dónde vino
-                        queue.add(nextPoint); // Añadir a la cola para explorar
+                        predecesores.put(nextPoint, currentPoint);
+                        queue.add(nextPoint);
                     }
-                    // Opcional: Podrías marcar la celda bloqueada como visitada si quisieras
+                    // Opcional: Marcar la celda bloqueada como visitada
                     // else { visited.add(nextPoint); }
                 }
             }
@@ -334,26 +325,24 @@ public class GridVisualizer extends JPanel {
         // Reconstruir el camino si se encontró el destino
         if (!found) {
             System.err.println("WARN: No se encontró camino BFS desde " + startPoint + " hasta " + endPoint);
-            return null; // No hay camino
+            return null;
         }
 
         LinkedList<Point> path = new LinkedList<>();
         Point step = endPoint;
         // Retroceder desde el destino hasta el inicio usando los predecesores
         while (step != null) {
-            // No añadir el punto de inicio al camino devuelto (la línea se dibuja desde 'from')
             if (!step.equals(startPoint)) {
                 path.addFirst(step);
             }
             step = predecesores.get(step);
-            // Control anti-bucle infinito (por si acaso)
             if (path.size() > GRID_WIDTH * GRID_HEIGHT) {
                 System.err.println("ERROR: Posible bucle infinito reconstruyendo camino BFS.");
                 return null;
             }
         }
 
-        return path; // Devuelve la lista de puntos (celdas) del camino (sin incluir el inicio)
+        return path;
     }
 
-} // Fin de la clase GridVisualizer_MDVRP
+}

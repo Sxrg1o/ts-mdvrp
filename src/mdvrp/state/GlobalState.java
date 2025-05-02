@@ -43,11 +43,11 @@ public class GlobalState {
         activeCustomerParts.clear();
         pendingPedidos.clear();
         definedBloqueos.clear();
-        blockedNodes = new boolean[GRID_WIDTH][GRID_HEIGHT]; // Reiniciar grid
+        blockedNodes = new boolean[GRID_WIDTH][GRID_HEIGHT];
         currentSimTime = 0;
-        CustomerPart.nextPartId = 0; // Reiniciar contador
+        CustomerPart.nextPartId = 0;
 
-        // Cargar datos de archivos (usando IOUtils)
+        // Cargar datos de archivos
         pendingPedidos = IOUtils.cargarPedidos(pedidosFile);
         definedBloqueos = IOUtils.cargarBloqueos(bloqueosFile);
 
@@ -58,25 +58,24 @@ public class GlobalState {
         System.out.println("Depósitos creados: " + depots.size());
 
         // Crear Flota y Estados de Camión
-        Depot mainDepot = depots.get(0); // Asumiendo que Planta es el primero
+        Depot mainDepot = depots.get(0);
         int count = 0;
-        // Mover estas configuraciones a constantes si se prefiere
         String[] types = {"TA", "TB", "TC", "TD"};
         int[] counts = {2, 4, 4, 10};
-        TruckType[] enumTypes = TruckType.values(); // Más robusto
+        TruckType[] enumTypes = TruckType.values();
 
         if (types.length != enumTypes.length || types.length != counts.length) {
             throw new IllegalStateException("Configuración de tipos/conteos de camiones inconsistente.");
         }
 
         for (int typeIdx = 0; typeIdx < types.length; typeIdx++) {
-            TruckType currentType = enumTypes[typeIdx]; // Usar el enum directamente
+            TruckType currentType = enumTypes[typeIdx];
             // Validar que el nombre coincida si es necesario: assert types[typeIdx].equals(currentType.name());
             for (int i = 1; i <= counts[typeIdx]; i++) {
                 String truckId = String.format("%s%02d", types[typeIdx], i);
                 Truck truck = new Truck(truckId, currentType, mainDepot);
                 fleet.add(truck);
-                truckStates.put(truckId, new TruckState(truck)); // Crea el estado inicial
+                truckStates.put(truckId, new TruckState(truck));
                 count++;
             }
         }

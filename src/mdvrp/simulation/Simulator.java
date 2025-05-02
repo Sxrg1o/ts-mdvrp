@@ -25,12 +25,11 @@ public class Simulator {
     public static void runSimulation(int durationMinutes, boolean enableReplanning) {
         System.out.println("--- Iniciando Simulación por " + durationMinutes + " minutos ---");
         while (currentSimTime <= durationMinutes) {
-            // Procesar eventos del minuto actual
             boolean newOrderActivated = activateNewPedidos(currentSimTime);
             boolean blockadeChanged = updateBlockages(currentSimTime);
             refillIntermediateDepotsIfNeeded(currentSimTime);
 
-            // Actualizar estado de los camiones (útil luego para averías, etc)
+            // Actualizar estado de los camiones (útil luego para averías y mantenimientos)
             updateTrucks(currentSimTime);
 
             // Replanificación
@@ -75,7 +74,7 @@ public class Simulator {
                         ts.currentLoadM3 = calculateRequiredLoadForPlan(ts.currentRoutePlan);
                         if (ts.currentLoadM3 > ts.truck.type.capacidadM3) {
                             System.err.println("ERROR: Plan asigna carga > capacidad a " + ts.truck.id);
-                            ts.currentRoutePlan.clear(); // Abortar plan
+                            ts.currentRoutePlan.clear();
                             ts.status = TruckState.Status.IDLE;
                             ts.timeAvailable = minute;
                         } else {
@@ -110,7 +109,6 @@ public class Simulator {
                                 ts.status = TruckState.Status.EN_ROUTE;
                                 ts.arrivalTimeAtDestination = minute + travelTime;
                                 ts.timeAvailable = ts.arrivalTimeAtDestination;
-                                // Consumir combustible ahora (o al llegar?) Por ahora mejor al llegar para simplificar
                             }
                         }
                     } else {
@@ -151,7 +149,7 @@ public class Simulator {
                     break;
 
                 case DISCHARGING:
-                    CustomerPart servedPart = (CustomerPart) ts.destination; // El destino era el cliente
+                    CustomerPart servedPart = (CustomerPart) ts.destination;
                     System.out.println("Truck " + ts.truck.id + " terminó descarga en CPart " + servedPart.partId + " en t=" + minute);
                     ts.currentLoadM3 -= servedPart.demandM3;
                     servedPart.served = true;
@@ -263,7 +261,7 @@ public class Simulator {
     }
 
     static void refillIntermediateDepotsIfNeeded(int minute) {
-        if (minute > 0 && minute % (24 * 60) == 0) { // A las 00:00 de cada día (excepto inicio)
+        if (minute > 0 && minute % (24 * 60) == 0) {
             System.out.println("--- Medianoche día " + (minute / (24 * 60)) + ": Reabasteciendo Depósitos Intermedios ---");
             for (Depot d : depots) {
                 if (!d.isMainPlant()) {
@@ -283,7 +281,6 @@ public class Simulator {
                         if (step instanceof CustomerPart) {
                             partsInProgressIds.add(((CustomerPart) step).partId);
                         }
-                        // También podríamos considerar el 'destination' si es CustomerPart
                         if (ts.destination instanceof CustomerPart) {
                             partsInProgressIds.add(((CustomerPart) ts.destination).partId);
                         }
@@ -327,10 +324,6 @@ public class Simulator {
             }
         }
         System.out.println("Total de camiones con nuevas rutas asignadas: " + assignedTrucks.size());
-
-        // Marcar partes como 'atendidas' si están en alguna ruta asignada
-        // La simulación las marcará como 'served' al completar descarga.
-        // Esto es más para la lógica interna del planificador
     }
 
     public TabuSearchPlanner getPlanner() {

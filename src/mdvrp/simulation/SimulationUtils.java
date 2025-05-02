@@ -66,10 +66,10 @@ public class SimulationUtils {
     public Depot findBestDepotForReload(Location currentLocation, double minRequiredGLP) {
         Depot bestDepot = null;
         int minDistance = Integer.MAX_VALUE;
-        for (Depot depot : GlobalState.depots) { // Acceder a GlobalState
+        for (Depot depot : GlobalState.depots) {
             if (depot.isMainPlant()) continue;
             if (depot.capacidadActualM3 < minRequiredGLP - 0.01) continue;
-            int distance = distanciaReal(currentLocation, depot); // Usa la función de esta clase
+            int distance = distanciaReal(currentLocation, depot);
             if (distance != Integer.MAX_VALUE && distance < minDistance) {
                 minDistance = distance;
                 bestDepot = depot;

@@ -154,7 +154,6 @@ public class TabuSearchPlanner {
                             evaluateSolution(neighborSolution, planningStartTime);
 
                             // Crear un "Move" representativo
-                            // Podríamos definir Move_Assign o simplemente usar null/omitir tabú para asignaciones
                             Move assignmentMove = null;
                             boolean isTabu = false;
 
@@ -198,7 +197,9 @@ public class TabuSearchPlanner {
                 bestSolution = new PlanningSolution(currentSolution);
                 System.out.println("  Iter " + iter + ": ✨ Nueva Mejor Solución! Costo: " + formatCost(bestSolution.totalCost) + " Sin Asignar: " + bestSolution.unassignedParts.size() + " Factible: " + bestSolution.fullyFeasible);
             }
-            if (iter > 0 && iter % 100 == 0) { System.out.println("  Iter " + iter + " | Costo Actual: " + formatCost(currentSolution.totalCost) + " | Mejor: " + formatCost(bestSolution.totalCost) + " | Sin Asignar: " + currentSolution.unassignedParts.size()); }
+            if (iter > 0 && iter % 100 == 0) {
+                System.out.println("  Iter " + iter + " | Costo Actual: " + formatCost(currentSolution.totalCost) + " | Mejor: " + formatCost(bestSolution.totalCost) + " | Sin Asignar: " + currentSolution.unassignedParts.size());
+            }
 
         }
 
@@ -211,7 +212,8 @@ public class TabuSearchPlanner {
         System.out.println("  Clientes Sin Asignar: " + bestSolution.unassignedParts.size());
         bestSolution.unassignedParts.forEach(p -> System.out.println("Ruta sin asignar: " + p.originalOrderId));
         System.out.println("  Rutas (" + bestSolution.routes.size() + "):");
-        bestSolution.routes.forEach(r -> System.out.println("    " + r + " | Costo: " + formatCost(r.cost) + " | Fuel: " + String.format("%.2f", r.estimatedFuel) + " Gal | Feasible: " + r.feasible));
+        bestSolution.routes.forEach(r ->
+                System.out.println("    " + r + " | Costo: " + formatCost(r.cost) + " | Fuel: " + String.format("%.2f", r.estimatedFuel) + " Gal | Feasible: " + r.feasible));
 
         return bestSolution;
     }

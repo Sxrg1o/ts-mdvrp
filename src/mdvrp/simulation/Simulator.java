@@ -3,6 +3,7 @@ import mdvrp.model.*;
 import mdvrp.planner.PlannedRoute;
 import mdvrp.planner.PlanningSolution;
 import mdvrp.planner.TabuSearchPlanner;
+import mdvrp.state.GlobalState;
 
 import java.util.*;
 
@@ -273,9 +274,33 @@ public class Simulator {
     }
 
     static List<CustomerPart> getUnservedCustomerParts() {
-        // Devuelve la lista actual de partes activas que no están marcadas como servidas
-        // Contiene solo las no servidas.
-        return new ArrayList<>(activeCustomerParts);
+        Set<Integer> partsInProgressIds = new HashSet<>();
+        for (TruckState ts : GlobalState.truckStates.values()) {
+            // Considerar camiones que están trabajando activamente en una ruta
+            if (ts.status != TruckState.Status.IDLE && ts.status != TruckState.Status.INACTIVE) {
+                if (ts.currentRoutePlan != null) {
+                    for (Object step : ts.currentRoutePlan) {
+                        if (step instanceof CustomerPart) {
+                            partsInProgressIds.add(((CustomerPart) step).partId);
+                        }
+                        // También podríamos considerar el 'destination' si es CustomerPart
+                        if (ts.destination instanceof CustomerPart) {
+                            partsInProgressIds.add(((CustomerPart) ts.destination).partId);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Filtrar la lista global de partes activas
+        List<CustomerPart> needingAssignment = new ArrayList<>();
+        for (CustomerPart part : GlobalState.activeCustomerParts) {
+            if (!partsInProgressIds.contains(part.partId)) {
+                needingAssignment.add(part);
+            }
+        }
+
+        return needingAssignment;
     }
 
     static void applyPlannedRoutes(PlanningSolution solution, int applyTime) {

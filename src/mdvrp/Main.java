@@ -19,7 +19,7 @@ public class Main {
             Simulator simulator = new Simulator(planner); // Pasar el planner al simulador
 
             // 3. Configurar y correr la simulación
-            int simulationDuration = 7 * 24 * 60; // 1 semana (ejemplo)
+            int simulationDuration = 40 * 24 * 60; // 1 semana (ejemplo)
             boolean enableReplanning = true;
             Simulator.runSimulation(simulationDuration, enableReplanning);
 

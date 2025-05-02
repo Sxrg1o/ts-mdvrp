@@ -9,16 +9,18 @@ public class CustomerPart extends Location {
     public int arrivalTimeMinutes;
     public int deadlineMinutes;
     public boolean served = false;
+    public int originalClientId;
 
-    public static int nextPartId = 0;
+    public static int nextPartId = 1;
 
-    public CustomerPart(int originalOrderId, int x, int y, double demand, int tArrival, int deadline) {
+    public CustomerPart(int originalOrderId, int x, int y, double demand, int tArrival, int deadline, int originalClientId) {
         super(x, y);
         this.partId = nextPartId++;
         this.originalOrderId = originalOrderId;
         this.demandM3 = demand;
         this.arrivalTimeMinutes = tArrival;
         this.deadlineMinutes = deadline;
+        this.originalClientId = originalClientId;
     }
     @Override public String toString() {
         return "CustPart[" + partId + "(Orig:" + originalOrderId + ")@" + super.toString() + ", Dem:" + demandM3 + ", Lim:" + deadlineMinutes + "]";

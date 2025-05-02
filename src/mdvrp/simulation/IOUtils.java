@@ -24,9 +24,11 @@ public class IOUtils {
                 if(d.length!=5)continue;
                 int x=Integer.parseInt(d[0].trim());
                 int y=Integer.parseInt(d[1].trim());
+                String[] client=d[2].split("-");
+                int id=Integer.parseInt(client[1].trim());
                 double v=Double.parseDouble(d[3].trim().replace("m3",""));
                 int h=Integer.parseInt(d[4].trim().replace("h",""));
-                p.add(new Pedido(x,y,v,h,m));
+                p.add(new Pedido(x,y,v,h,m,id));
             } catch(Exception e)
             {
                 System.err.println("Error P: "+s+" - "+e.getMessage());

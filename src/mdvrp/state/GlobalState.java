@@ -20,8 +20,9 @@ public class GlobalState {
     public static final int RELOAD_GLP_MINUTES = 15;
     public static final double MAX_FUEL_GAL = 25.0;
     public static final double MAX_TRUCK_CAPACITY_M3 = 25.0;
-    public static final int TS_MAX_ITERATIONS = 100;
+    public static final int TS_MAX_ITERATIONS = 400;
     public static final int TS_TABU_TENURE = 15;
+    public static final double RELOAD_PENALTY_COST_GAL = 0.1;
 
     // Estado global de la simulación
     public static boolean[][] blockedNodes = new boolean[GRID_WIDTH][GRID_HEIGHT];

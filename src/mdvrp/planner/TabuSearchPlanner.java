@@ -1,8 +1,10 @@
 package mdvrp.planner;
 
 import mdvrp.model.CustomerPart;
+import mdvrp.model.Depot;
 import mdvrp.model.Location;
 import mdvrp.model.Truck;
+import mdvrp.simulation.SimulationUtils;
 import mdvrp.state.GlobalState;
 import mdvrp.simulation.TruckState;
 
@@ -292,33 +294,40 @@ public class TabuSearchPlanner {
     }
 
     public static void evaluateSolution(PlanningSolution solution, int planningStartTime) {
-        solution.totalCost = 0; solution.fullyFeasible = true;
-        if(solution.routes == null) {
-            solution.totalCost=Double.POSITIVE_INFINITY;
-            solution.fullyFeasible=false;
-            return;
-        }
+        solution.totalCost = 0;
+        solution.operationalFuelCost = 0; // Costo real de fuel
+        solution.fullyFeasible = true;
+        if(solution.routes == null) { return; }
 
         for (PlannedRoute r : solution.routes) {
             evaluatePlannedRoute(r, planningStartTime);
-            if (!r.feasible) { solution.fullyFeasible = false; }
-            if (r.cost != Double.POSITIVE_INFINITY) {
+            if (!r.feasible) {
+                solution.fullyFeasible = false;
+            }
+
+            if (r.feasible) {
+                // Acumular costo CON penalización para la optimización
                 if (solution.totalCost != Double.POSITIVE_INFINITY) {
-                    solution.totalCost += r.cost;
-                    solution.operationalFuelCost += r.cost;
+                    if (r.cost != Double.POSITIVE_INFINITY) {
+                        solution.totalCost += r.cost;
+                    } else { solution.totalCost = Double.POSITIVE_INFINITY; }
                 }
-                else {
-                    solution.totalCost = r.cost;
-                    solution.operationalFuelCost = r.cost;
+                // Acumular costo de fuel SIN penalización
+                if (solution.operationalFuelCost != Double.POSITIVE_INFINITY) {
+                    if (r.estimatedFuel != Double.POSITIVE_INFINITY) {
+                        solution.operationalFuelCost += r.estimatedFuel;
+                    } else { solution.operationalFuelCost = Double.POSITIVE_INFINITY; }
                 }
             } else {
                 solution.totalCost = Double.POSITIVE_INFINITY;
+                solution.operationalFuelCost = Double.POSITIVE_INFINITY;
             }
         }
+
         if (!solution.unassignedParts.isEmpty()) {
             solution.fullyFeasible = false;
-            // Penalización fuerte si hay no asignados, haciendo el costo efectivamente infinito
             solution.totalCost = Double.POSITIVE_INFINITY;
+            solution.operationalFuelCost = Double.POSITIVE_INFINITY;
         }
     }
 
@@ -337,57 +346,132 @@ public class TabuSearchPlanner {
 
     public static RouteEvaluationResult calculatePlannedRouteCostAndFuel(PlannedRoute route, int startTime) {
         RouteEvaluationResult result = new RouteEvaluationResult();
-        double totalFuelCost = 0;
+        double totalFuelConsumed = 0;
         double currentLoadM3 = 0;
 
         if (route == null || route.truck == null || route.startDepot == null || route.endDepot == null || route.sequence == null) {
+            result.feasible = false;
             return result;
         }
 
-        int currentTime = startTime + PRE_TRIP_CHECK_MINUTES;
+        int currentTime = startTime + GlobalState.PRE_TRIP_CHECK_MINUTES;
         Location currentLocation = route.startDepot;
+        double initialNeededLoad = route.sequence.stream().mapToDouble(c -> c.demandM3).sum();
+        currentLoadM3 = Math.min(initialNeededLoad, route.truck.type.capacidadM3);
+        double fuelRemaining = GlobalState.MAX_FUEL_GAL;
 
-        currentLoadM3 = calculatePlannedRouteLoad(route);
-        if (currentLoadM3 > route.truck.type.capacidadM3) {
-            // System.err.println(" Ruta " + route.truck.id + ": CAPACIDAD excedida");
-            return result;
-        }
+        // Log inicial
+        // System.out.printf("PlanEval [%s]: Start %s @ t=%d, Load=%.2f, Fuel=%.2f\n",
+        //        route.truck.id, currentLocation, currentTime, currentLoadM3, fuelRemaining);
 
-        double fuelRemaining = MAX_FUEL_GAL;
 
+        // Iterar por los clientes en la secuencia planificada
         for (CustomerPart customer : route.sequence) {
-            int dist = distanciaReal(currentLocation, customer);
-            if (dist == Integer.MAX_VALUE) return result;
 
-            double fuelNeeded = calculateFuelConsumed(dist, currentLoadM3, route.truck);
-            if (fuelNeeded > fuelRemaining) return result;
+            // Si la carga actual es menor que la demanda del siguiente cliente (con tolerancia)
+            if (currentLoadM3 < customer.demandM3 - 0.01) {
+                result.hypotheticalReloads++;
+                // System.out.printf("    PlanEval [%s]: Needs GLP Reload (%.2f < %.2f) before CPart %d\n",
+                //         route.truck.id, currentLoadM3, customer.demandM3, customer.partId);
 
-            totalFuelCost += fuelNeeded;
+                Depot reloadDepot = SimulationUtils.findBestDepotForReload(currentLocation, customer.demandM3);
+
+                if (reloadDepot == null) {
+                    // System.out.println("      PlanEval: No suitable depot found. Route INFEASIBLE.");
+                    result.feasible = false; return result;
+                }
+
+                int distToDepot = SimulationUtils.distanciaReal(currentLocation, reloadDepot);
+                int distDepotToCustomer = SimulationUtils.distanciaReal(reloadDepot, customer);
+
+                if (distToDepot == Integer.MAX_VALUE || distDepotToCustomer == Integer.MAX_VALUE) {
+                    // System.out.println("      PlanEval: Path to/from reload depot blocked. Route INFEASIBLE.");
+                    result.feasible = false; return result;
+                }
+
+                // Calcular tiempo extra (viaje al depot + tiempo de carga)
+                int travelTimeToDepot = (int) Math.round(distToDepot * SimulationUtils.MINUTOS_POR_KM);
+                int currentTotalExtraTime = travelTimeToDepot + GlobalState.RELOAD_GLP_MINUTES;
+                result.extraTimeFromReloads += currentTotalExtraTime;
+
+                // Calcular fuel para ir al depot
+                double fuelToDepot = SimulationUtils.calculateFuelConsumed(distToDepot, currentLoadM3, route.truck);
+                if (fuelToDepot > fuelRemaining) {
+                    // System.out.println("      PlanEval: Not enough fuel to reach reload depot. Route INFEASIBLE.");
+                    result.feasible = false; return result;
+                }
+                // Consumir fuel, añadir al total, y repostar *combustible* (asumido en depot)
+                totalFuelConsumed += fuelToDepot;
+                fuelRemaining -= fuelToDepot;
+                fuelRemaining = GlobalState.MAX_FUEL_GAL;
+
+                // Penalizar el costo de la ruta por necesitar recarga
+                result.penaltyCost += RELOAD_PENALTY_COST_GAL;
+
+                // SIMULAR LA RECARGA GLP
+                currentLoadM3 = route.truck.type.capacidadM3;
+                // System.out.printf("      PlanEval: Simulating GLP reload at %s. New Load=%.2f. Time increases by %d min.\n",
+                //         reloadDepot.id, currentLoadM3, currentTotalExtraTime);
+
+
+                // Actualizar ubicación y tiempo actuales
+                currentTime += currentTotalExtraTime; // Añadir tiempo de viaje a depot + recarga
+                currentLocation = reloadDepot; // Ahora estamos en el depot
+            }
+
+            // Proceder con el viaje desde la ubicación actual (cliente anterior o depot de recarga) hacia el cliente
+            int distToCustomer = SimulationUtils.distanciaReal(currentLocation, customer);
+            if (distToCustomer == Integer.MAX_VALUE) {
+                // System.out.printf("    PlanEval [%s]: Path blocked to CPart %d. Route INFEASIBLE.\n", route.truck.id, customer.partId);
+                result.feasible = false; return result;
+            }
+
+            double fuelNeeded = SimulationUtils.calculateFuelConsumed(distToCustomer, currentLoadM3, route.truck);
+            if (fuelNeeded > fuelRemaining) {
+                // System.out.printf("    PlanEval [%s]: Not enough fuel (%.2f > %.2f) to reach CPart %d. Route INFEASIBLE.\n",
+                //        route.truck.id, fuelNeeded, fuelRemaining, customer.partId);
+                result.feasible = false; return result;
+            }
+
+            totalFuelConsumed += fuelNeeded;
             fuelRemaining -= fuelNeeded;
-            currentTime += (int) Math.round(dist * MINUTOS_POR_KM);
+            currentTime += (int) Math.round(distToCustomer * SimulationUtils.MINUTOS_POR_KM);
+            // System.out.printf("    PlanEval [%s]: Traveled to %s. Current Time: %d, Fuel Rem: %.2f\n",
+            //         route.truck.id, customer, currentTime, fuelRemaining);
 
-            if (currentTime > customer.deadlineMinutes) return result;
 
-            currentTime += DISCHARGE_TIME_MINUTES;
+            if (currentTime > customer.deadlineMinutes) {
+                // System.out.printf("    PlanEval [%s]: Deadline miss for CPart %d (Arrives: %d, Deadline: %d). Route INFEASIBLE.\n",
+                //        route.truck.id, customer.partId, currentTime, customer.deadlineMinutes);
+                result.feasible = false; return result;
+            }
 
+            currentTime += GlobalState.DISCHARGE_TIME_MINUTES;
             currentLocation = customer;
             currentLoadM3 -= customer.demandM3;
+            if (currentLoadM3 < -0.01) { currentLoadM3 = 0; } // Ajuste por precisión
+            // System.out.printf("    PlanEval [%s]: Discharged at %s. Current Time: %d, Load Rem: %.2f\n",
+            //        route.truck.id, customer, currentTime, currentLoadM3);
+
+
         }
 
-        int distReturn = distanciaReal(currentLocation, route.endDepot);
-        if (distReturn == Integer.MAX_VALUE) return result;
+        int distReturn = SimulationUtils.distanciaReal(currentLocation, route.endDepot);
+        if (distReturn == Integer.MAX_VALUE) { result.feasible = false; return result; }
 
-        double fuelReturn = calculateFuelConsumed(distReturn, 0.0, route.truck);
-        if (fuelReturn > fuelRemaining) return result;
+        double fuelReturn = SimulationUtils.calculateFuelConsumed(distReturn, currentLoadM3, route.truck);
+        if (fuelReturn > fuelRemaining) { result.feasible = false; return result; }
 
-        totalFuelCost += fuelReturn;
-        currentTime += (int) Math.round(distReturn * MINUTOS_POR_KM);
+        totalFuelConsumed += fuelReturn;
+        currentTime += (int) Math.round(distReturn * SimulationUtils.MINUTOS_POR_KM);
+        // System.out.printf("    PlanEval [%s]: Returned to %s. Final Time: %d, Total Fuel: %.2f\n",
+        //        route.truck.id, route.endDepot, currentTime, totalFuelConsumed);
 
-        result.cost = totalFuelCost;
-        result.fuel = MAX_FUEL_GAL - fuelRemaining + fuelReturn;
-        result.fuel = totalFuelCost;
         result.feasible = true;
         result.endTime = currentTime;
+        result.fuel = totalFuelConsumed;
+        result.cost = totalFuelConsumed + result.penaltyCost;
+
         return result;
     }
 

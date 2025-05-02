@@ -22,7 +22,7 @@ public class Simulator {
         this.planner = new TabuSearchPlanner();
     }
 
-    public static void runSimulation(int durationMinutes, boolean enableReplanning) {
+    public void runSimulation(int durationMinutes, boolean enableReplanning) {
         System.out.println("--- Iniciando Simulación por " + durationMinutes + " minutos ---");
         while (currentSimTime <= durationMinutes) {
             boolean newOrderActivated = activateNewPedidos(currentSimTime);
@@ -58,7 +58,7 @@ public class Simulator {
         System.out.println("\n✅ Simulación finalizada en minuto " + (currentSimTime - 1));
     }
 
-    static void updateTrucks(int minute) {
+    public void updateTrucks(int minute) {
         for (TruckState ts : truckStates.values()) {
             if (ts.status == TruckState.Status.INACTIVE || minute < ts.timeAvailable) {
                 continue;
@@ -149,41 +149,199 @@ public class Simulator {
                     break;
 
                 case DISCHARGING:
-                    CustomerPart servedPart = (CustomerPart) ts.destination;
-                    System.out.println("Truck " + ts.truck.id + " terminó descarga en CPart " + servedPart.partId + " en t=" + minute);
-                    ts.currentLoadM3 -= servedPart.demandM3;
-                    servedPart.served = true;
-                    activeCustomerParts.remove(servedPart);
+                    if (minute >= ts.timeAvailable) {
+                        CustomerPart servedPart = (CustomerPart) ts.destination;
+                        System.out.println("Truck " + ts.truck.id + " terminó descarga en CPart " + servedPart.partId + " en t=" + minute);
+                        ts.currentLoadM3 -= servedPart.demandM3;
+                        if (ts.currentLoadM3 < -0.01) { ts.currentLoadM3 = 0; }
+                        servedPart.served = true;
+                        GlobalState.activeCustomerParts.remove(servedPart);
 
-                    ts.currentRoutePlan.remove(0);
-
-                    if (ts.currentRoutePlan.isEmpty()) {
-                        System.out.println("  Truck " + ts.truck.id + " última entrega, regresando a " + ts.truck.homeDepot);
-                        ts.destination = ts.truck.homeDepot;
-                        ts.status = TruckState.Status.RETURNING;
-                    } else {
-                        ts.destination = (Location) ts.currentRoutePlan.get(0);
-                        System.out.println("  Truck " + ts.truck.id + " yendo a siguiente destino: " + ts.destination);
-                        ts.status = TruckState.Status.EN_ROUTE;
-                    }
-
-                    int distNext = ts.currentLocation.distanceTo(ts.destination);
-                    if (distNext == Integer.MAX_VALUE) {
-                        System.err.println("ERROR: Ruta bloqueada para siguiente tramo de " + ts.truck.id + ". Abortando.");
-                        ts.status = TruckState.Status.IDLE; ts.currentRoutePlan.clear(); ts.timeAvailable = minute;
-                    } else {
-                        int travelTimeNext = (int) Math.round(distNext * MINUTOS_POR_KM);
-                        double fuelNeededNext = calculateFuelConsumed(distNext, ts.currentLoadM3, ts.truck);
-                        if (fuelNeededNext > ts.currentFuelGal) {
-                            // Si se queda sin combustible después de esto, (POR AHORA SE MARCA COMO NO DISPONIBLE)
-                            System.err.println("ERROR CRITICO: Combustible insuficiente para tramo post-descarga " + ts.truck.id + " (Need:" + fuelNeededNext + ", Have:" + ts.currentFuelGal + "). Abortando ruta.");
-                            ts.status = TruckState.Status.INACTIVE;
-                            ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                        // Quitar el cliente recién servido del plan de acción
+                        if (!ts.currentRoutePlan.isEmpty() && ts.currentRoutePlan.get(0).equals(servedPart)) {
+                            ts.currentRoutePlan.remove(0);
                         } else {
-                            ts.arrivalTimeAtDestination = minute + travelTimeNext;
-                            ts.timeAvailable = ts.arrivalTimeAtDestination;
+                            System.err.println("WARN: CPart " + servedPart.partId + " no era el primer elemento del plan de " + ts.truck.id + " al terminar descarga?");
                         }
-                    }
+
+
+                        if (ts.currentRoutePlan.isEmpty()) {
+                            // Última entrega, regresar a casa
+                            System.out.println("  Truck " + ts.truck.id + " última entrega, regresando a " + ts.truck.homeDepot);
+                            ts.destination = ts.truck.homeDepot;
+                            ts.status = TruckState.Status.RETURNING;
+                            int distRet = SimulationUtils.distanciaReal(ts.currentLocation, ts.destination);
+                            if (distRet == Integer.MAX_VALUE) {
+                                System.err.println("ERROR: Ruta bloqueada para retorno de " + ts.truck.id + ". INACTIVE.");
+                                ts.status = TruckState.Status.INACTIVE; ts.timeAvailable = Integer.MAX_VALUE;
+                            } else {
+                                int travelTimeRet = (int) Math.round(distRet * SimulationUtils.MINUTOS_POR_KM);
+                                double fuelNeededRet = SimulationUtils.calculateFuelConsumed(distRet, ts.currentLoadM3, ts.truck);
+                                if (fuelNeededRet > ts.currentFuelGal) {
+                                    System.err.println("ERROR CRITICO: Combustible insuficiente para RETORNO " + ts.truck.id + ". INACTIVE.");
+                                    ts.status = TruckState.Status.INACTIVE; ts.timeAvailable = Integer.MAX_VALUE;
+                                } else {
+                                    ts.arrivalTimeAtDestination = minute + travelTimeRet;
+                                    ts.timeAvailable = ts.arrivalTimeAtDestination;
+                                }
+                            }
+                        } else {
+                            Object nextStep = ts.currentRoutePlan.get(0);
+                            if (nextStep instanceof CustomerPart) {
+                                CustomerPart nextCustomer = (CustomerPart) nextStep;
+                                System.out.println("  Truck " + ts.truck.id + " siguiente destino planificado: CPart " + nextCustomer.partId);
+
+                                // Necesita recargar GLP ANTES de ir al siguiente cliente
+                                if (ts.currentLoadM3 < nextCustomer.demandM3 - 0.01) {
+                                    System.out.println("    ** Necesita recargar GLP (" + String.format("%.2f", ts.currentLoadM3) + " m3) para CPart " + nextCustomer.partId + " (demanda " + nextCustomer.demandM3 + " m3). Buscando depósito...");
+
+                                    Depot chosenDepot = SimulationUtils.findBestDepotForReload(ts.currentLocation, nextCustomer.demandM3);
+
+                                    if (chosenDepot != null) {
+                                        System.out.println("    Depósito elegido para recarga: " + chosenDepot.id);
+                                        int distToDepot = SimulationUtils.distanciaReal(ts.currentLocation, chosenDepot);
+                                        if (distToDepot == Integer.MAX_VALUE) {
+                                            System.err.println("ERROR: Ruta bloqueada hacia depósito de recarga " + chosenDepot.id + " para " + ts.truck.id + ". INACTIVE.");
+                                            ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                        } else {
+                                            int travelTimeToDepot = (int) Math.round(distToDepot * SimulationUtils.MINUTOS_POR_KM);
+                                            double fuelNeededToDepot = SimulationUtils.calculateFuelConsumed(distToDepot, ts.currentLoadM3, ts.truck);
+
+                                            if (fuelNeededToDepot > ts.currentFuelGal) {
+                                                System.err.println("ERROR CRITICO: Combustible insuficiente para ir a recargar GLP a " + chosenDepot.id + " para " + ts.truck.id + ". INACTIVE.");
+                                                ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                            } else {
+                                                // Ruta a depósito de recarga es viable
+                                                ts.destination = chosenDepot;
+                                                ts.status = TruckState.Status.EN_ROUTE_TO_RELOAD;
+                                                ts.arrivalTimeAtDestination = minute + travelTimeToDepot;
+                                                ts.timeAvailable = ts.arrivalTimeAtDestination;
+                                                System.out.println("    Dirigiéndose a " + chosenDepot.id + " para recargar GLP. Llegada estimada: " + SimulationUtils.formatTime(ts.arrivalTimeAtDestination));
+                                            }
+                                        }
+                                    } else {
+                                        System.err.println("ERROR CRITICO: No se encontró depósito intermedio viable con suficiente GLP para CPart " + nextCustomer.partId + " para camión " + ts.truck.id + ". INACTIVE.");
+                                        ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                    }
+                                } else {
+                                    System.out.println("    Tiene suficiente GLP. Dirigiéndose a CPart " + nextCustomer.partId);
+                                    ts.destination = nextCustomer;
+                                    ts.status = TruckState.Status.EN_ROUTE;
+                                    int distNext = SimulationUtils.distanciaReal(ts.currentLocation, ts.destination);
+                                    if (distNext == Integer.MAX_VALUE) {
+                                        System.err.println("ERROR: Ruta bloqueada para siguiente tramo de " + ts.truck.id + ". INACTIVE.");
+                                        ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                    } else {
+                                        int travelTimeNext = (int) Math.round(distNext * SimulationUtils.MINUTOS_POR_KM);
+                                        double fuelNeededNext = SimulationUtils.calculateFuelConsumed(distNext, ts.currentLoadM3, ts.truck);
+                                        if (fuelNeededNext > ts.currentFuelGal) {
+                                            System.err.println("ERROR CRITICO: Combustible insuficiente para tramo post-descarga " + ts.truck.id + ". INACTIVE.");
+                                            ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                        } else {
+                                            ts.arrivalTimeAtDestination = minute + travelTimeNext;
+                                            ts.timeAvailable = ts.arrivalTimeAtDestination;
+                                        }
+                                    }
+                                }
+                            } else if (nextStep instanceof Depot) {
+                                System.out.println("  Truck " + ts.truck.id + " siguiente destino planificado: Depot " + ((Depot)nextStep).id);
+                                ts.destination = (Location) nextStep;
+                                ts.status = TruckState.Status.EN_ROUTE;
+                                int distNext = SimulationUtils.distanciaReal(ts.currentLocation, ts.destination);
+                                if (distNext == Integer.MAX_VALUE) {
+                                    System.err.println("ERROR: Ruta bloqueada para tramo final a Depot para " + ts.truck.id + ". INACTIVE.");
+                                    ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                } else {
+                                    int travelTimeNext = (int) Math.round(distNext * SimulationUtils.MINUTOS_POR_KM);
+                                    double fuelNeededNext = SimulationUtils.calculateFuelConsumed(distNext, ts.currentLoadM3, ts.truck);
+                                    if (fuelNeededNext > ts.currentFuelGal) {
+                                        System.err.println("ERROR CRITICO: Combustible insuficiente para tramo final a Depot " + ts.truck.id + ". INACTIVE.");
+                                        ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                    } else {
+                                        ts.arrivalTimeAtDestination = minute + travelTimeNext;
+                                        ts.timeAvailable = ts.arrivalTimeAtDestination;
+                                    }
+                                }
+                            } else {
+                                System.err.println("ERROR INESPERADO: Siguiente paso en plan no es Cliente ni Deposito: " + nextStep);
+                                ts.status = TruckState.Status.IDLE; ts.currentRoutePlan.clear(); ts.timeAvailable = minute;
+                            }
+                        }
+                    } // else { // Aún no ha terminado la descarga }
+                    break;
+
+                case EN_ROUTE_TO_RELOAD:
+                    if (minute >= ts.arrivalTimeAtDestination) {
+                        Depot arrivedDepot = (Depot) ts.destination;
+                        System.out.println("Truck " + ts.truck.id + " llegó a " + arrivedDepot.id + " para recargar GLP en t=" + minute);
+
+                        distTraveled = SimulationUtils.distanciaReal(ts.currentLocation, arrivedDepot);
+                        fuelConsumed = SimulationUtils.calculateFuelConsumed(distTraveled, ts.currentLoadM3, ts.truck);
+                        ts.currentFuelGal -= fuelConsumed;
+                        if (ts.currentFuelGal < 0) System.err.println("ALERTA: Combustible negativo para " + ts.truck.id + " al llegar a recargar GLP.");
+                        ts.currentLocation = arrivedDepot;
+
+                        if (ts.currentFuelGal < GlobalState.MAX_FUEL_GAL) {
+                            System.out.println("    Recargando combustible...");
+                            ts.currentFuelGal = GlobalState.MAX_FUEL_GAL;
+                        }
+
+                        double neededForRestOfPlan = SimulationUtils.calculateRequiredLoadForPlan(ts.currentRoutePlan);
+                        double spaceInTruck = ts.truck.type.capacidadM3 - ts.currentLoadM3;
+                        double glpToRequest = Math.min(neededForRestOfPlan, spaceInTruck);
+                        double amountToLoad = 0;
+
+                        if (glpToRequest > 0.01) {
+                            double glpAvailableAtDepot = arrivedDepot.capacidadActualM3;
+                            amountToLoad = Math.min(glpToRequest, glpAvailableAtDepot);
+
+                            if (amountToLoad > 0.01) {
+                                ts.currentLoadM3 += amountToLoad;
+                                arrivedDepot.capacidadActualM3 -= amountToLoad;
+                                ts.timeAvailable = minute + GlobalState.RELOAD_GLP_MINUTES;
+                                System.out.println("    Recargó " + String.format("%.2f", amountToLoad) + " m3 GLP. Nueva Carga: " + String.format("%.2f", ts.currentLoadM3) + " m3.");
+                                System.out.println("    Capacidad restante en " + arrivedDepot.id + ": " + String.format("%.2f", arrivedDepot.capacidadActualM3) + " m3.");
+                            } else {
+                                System.out.println("    No se pudo recargar GLP (Depósito vacío o camión lleno/sin necesidad).");
+                                ts.timeAvailable = minute;
+                            }
+                        } else {
+                            System.out.println("    No necesita o no puede cargar más GLP en este momento.");
+                            ts.timeAvailable = minute;
+                        }
+
+                        // Establecer el siguiente destino (el cliente original)
+                        if (ts.currentRoutePlan.isEmpty()) {
+                            System.err.println("ERROR INESPERADO: Plan vacío después de recargar GLP para " + ts.truck.id + ". INACTIVE.");
+                            ts.status = TruckState.Status.INACTIVE; ts.timeAvailable = Integer.MAX_VALUE;
+                        } else {
+                            nextDestinationObj = ts.currentRoutePlan.get(0);
+                            if (!(nextDestinationObj instanceof CustomerPart)) {
+                                System.err.println("ERROR INESPERADO: Siguiente paso después de recarga no es Cliente: " + nextDestinationObj + ". INACTIVE.");
+                                ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                            } else {
+                                ts.destination = (Location) nextDestinationObj;
+                                ts.status = TruckState.Status.EN_ROUTE;
+                                System.out.println("  Truck " + ts.truck.id + " saliendo de " + arrivedDepot.id + " hacia " + ts.destination);
+
+                                int distNext = SimulationUtils.distanciaReal(ts.currentLocation, ts.destination);
+                                if (distNext == Integer.MAX_VALUE) {
+                                    System.err.println("ERROR: Ruta bloqueada desde depot de recarga a cliente para " + ts.truck.id + ". INACTIVE.");
+                                    ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                } else {
+                                    int travelTimeNext = (int) Math.round(distNext * SimulationUtils.MINUTOS_POR_KM);
+                                    double fuelNeededNext = SimulationUtils.calculateFuelConsumed(distNext, ts.currentLoadM3, ts.truck);
+                                    if (fuelNeededNext > ts.currentFuelGal) {
+                                        System.err.println("ERROR CRITICO: Combustible insuficiente DESPUÉS de recarga GLP para tramo a cliente " + ts.truck.id + ". INACTIVE.");
+                                        ts.status = TruckState.Status.INACTIVE; ts.currentRoutePlan.clear(); ts.timeAvailable = Integer.MAX_VALUE;
+                                    } else {
+                                        ts.arrivalTimeAtDestination = ts.timeAvailable + travelTimeNext;
+                                        ts.timeAvailable = ts.arrivalTimeAtDestination;
+                                    }
+                                }
+                            }
+                        }
+                    } // else { // Aún no ha llegado al depósito de recarga }
                     break;
 
                 case RETURNING:
@@ -208,7 +366,7 @@ public class Simulator {
         }
     }
 
-    static boolean activateNewPedidos(int minute) {
+    public boolean activateNewPedidos(int minute) {
         boolean added = false;
         Iterator<Pedido> it = pendingPedidos.iterator();
         int originalOrderId = activeCustomerParts.size();
@@ -224,7 +382,7 @@ public class Simulator {
                     partCount++;
                     double partDemand = Math.min(remainingDemand, MAX_TRUCK_CAPACITY_M3);
                     CustomerPart part = new CustomerPart(originalOrderId, p.x, p.y, partDemand,
-                            p.momentoPedido, p.momentoPedido + p.horaLimite * 60);
+                            p.momentoPedido, p.momentoPedido + p.horaLimite * 60, p.idCliente);
                     activeCustomerParts.add(part);
                     remainingDemand -= partDemand;
                     System.out.println("⏰ t=" + minute + " -> Nueva Parte Pedido ID:" + part.partId + "(Orig:"+originalOrderId+"."+partCount+") en " + part + " recibida.");
@@ -238,7 +396,7 @@ public class Simulator {
         return added;
     }
 
-    static boolean updateBlockages(int minute) {
+    public boolean updateBlockages(int minute) {
         boolean changed = false;
         for (Bloqueo b : definedBloqueos) {
             boolean currentState = blockedNodes[b.puntosBloqueados.get(0)[0]][b.puntosBloqueados.get(0)[1]];
@@ -252,7 +410,7 @@ public class Simulator {
         return changed;
     }
 
-    static void activateOrDeactivateBloqueo(Bloqueo b, boolean activate) {
+    public void activateOrDeactivateBloqueo(Bloqueo b, boolean activate) {
         for (int[] punto : b.puntosBloqueados) {
             if (punto[0] >= 0 && punto[0] < GRID_WIDTH && punto[1] >= 0 && punto[1] < GRID_HEIGHT) {
                 blockedNodes[punto[0]][punto[1]] = activate;
@@ -260,7 +418,7 @@ public class Simulator {
         }
     }
 
-    static void refillIntermediateDepotsIfNeeded(int minute) {
+    public void refillIntermediateDepotsIfNeeded(int minute) {
         if (minute > 0 && minute % (24 * 60) == 0) {
             System.out.println("--- Medianoche día " + (minute / (24 * 60)) + ": Reabasteciendo Depósitos Intermedios ---");
             for (Depot d : depots) {
@@ -271,7 +429,7 @@ public class Simulator {
         }
     }
 
-    static List<CustomerPart> getUnservedCustomerParts() {
+    public List<CustomerPart> getUnservedCustomerParts() {
         Set<Integer> partsInProgressIds = new HashSet<>();
         for (TruckState ts : GlobalState.truckStates.values()) {
             // Considerar camiones que están trabajando activamente en una ruta
@@ -300,7 +458,7 @@ public class Simulator {
         return needingAssignment;
     }
 
-    static void applyPlannedRoutes(PlanningSolution solution, int applyTime) {
+    public void applyPlannedRoutes(PlanningSolution solution, int applyTime) {
         if (solution == null) return;
 
         System.out.println("Aplicando rutas planificadas a camiones IDLE...");

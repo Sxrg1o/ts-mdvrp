@@ -63,7 +63,7 @@ public class SimulationUtils {
         return requiredLoad;
     }
 
-    public Depot findBestDepotForReload(Location currentLocation, double minRequiredGLP) {
+    public static Depot findBestDepotForReload(Location currentLocation, double minRequiredGLP) {
         Depot bestDepot = null;
         int minDistance = Integer.MAX_VALUE;
         for (Depot depot : GlobalState.depots) {
@@ -74,6 +74,9 @@ public class SimulationUtils {
                 minDistance = distance;
                 bestDepot = depot;
             }
+        }
+        if(bestDepot == null){
+            System.out.println("    WARN (findBestDepotForReload): No se encontró depósito intermedio adecuado desde " + currentLocation + " necesitando " + minRequiredGLP + " m3.");
         }
         return bestDepot;
     }

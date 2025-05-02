@@ -1,3 +1,5 @@
+package mdvrp.simulation;
+
 public class TiempoUtils {
 
     public static int parsearMarcaDeTiempo(String marca) {

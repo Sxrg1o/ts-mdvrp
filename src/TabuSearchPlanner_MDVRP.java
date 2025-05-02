@@ -18,7 +18,6 @@ public class TabuSearchPlanner_MDVRP {
     static final double MAX_TRUCK_CAPACITY_M3 = 25.0;
 
     // Clases principales
-
     static class Truck {
         String id; TruckType type; Depot homeDepot; boolean disponible;
         Location currentLocation; double cargaActualM3;
@@ -80,11 +79,11 @@ public class TabuSearchPlanner_MDVRP {
         }
     }
 
-    // Necesario para manejar la división de pedidos grandes.
+    // Necesario para manejar la división de pedidos grandes
     static class CustomerPart extends Location {
-        int partId;         // ID único de esta parte
-        int originalOrderId;// ID para agrupar partes del mismo pedido original
-        double demandM3;    // Demanda de esta parte específica
+        int partId;          // ID único de esta parte
+        int originalOrderId; // ID para agrupar partes del mismo pedido original
+        double demandM3;     // Demanda de esta parte específica
         int arrivalTimeMinutes;
         int deadlineMinutes;
         boolean served = false;
@@ -108,7 +107,9 @@ public class TabuSearchPlanner_MDVRP {
             CustomerPart that = (CustomerPart) o;
             return partId == that.partId;
         }
-        @Override public int hashCode() { return Objects.hash(partId); }
+        @Override public int hashCode() {
+            return Objects.hash(partId);
+        }
     }
 
     // Estado de un camión en la simulación
@@ -123,12 +124,14 @@ public class TabuSearchPlanner_MDVRP {
         List<Object> currentRoutePlan = new LinkedList<>();
         Location destination = null;
         int arrivalTimeAtDestination = -1;
+        List<PlannedRoute> routes;
 
         TruckState(Truck truck) {
             this.truck = truck;
             this.currentLocation = truck.homeDepot;
             this.currentFuelGal = MAX_FUEL_GAL;
             this.timeAvailable = 0;
+            this.routes = new ArrayList<>();
         }
     }
 
@@ -194,7 +197,7 @@ public class TabuSearchPlanner_MDVRP {
     static int currentSimTime = 0;
 
     // Parámetros y lista tabú
-    static final int TS_MAX_ITERATIONS = 1000; // Iteraciones para Tabu Search
+    static final int TS_MAX_ITERATIONS = 100; // Iteraciones para Tabu Search
     static final int TS_TABU_TENURE = 15;      // Duración tabú (unificada)
 
     interface Move { }
@@ -206,7 +209,8 @@ public class TabuSearchPlanner_MDVRP {
         @Override public boolean equals(Object o){
             if(this==o) return true;
             if(o==null||getClass()!=o.getClass()) return false;
-            Move_2Opt m=(Move_2Opt)o; return custIdx1==m.custIdx1 && custIdx2==m.custIdx2 && Objects.equals(truckId, m.truckId);}
+            Move_2Opt m=(Move_2Opt)o;
+            return custIdx1==m.custIdx1 && custIdx2==m.custIdx2 && Objects.equals(truckId, m.truckId);}
         @Override public int hashCode(){ return Objects.hash(truckId, custIdx1, custIdx2); }
     }
 
@@ -227,8 +231,8 @@ public class TabuSearchPlanner_MDVRP {
     public static void main(String[] args) throws Exception {
         initializeSimulation();
 
-        int simulationDuration = 7 * 24 * 60; // 1 semana
-        boolean replanOnNewOrder = false; // Cambiar a true para replanificación dinámica (todavía no, me da miedo)
+        int simulationDuration = 8 * 24 * 60; // 1 semana
+        boolean replanOnNewOrder = true; // Cambiar a false para asignar todos los camiones al final (no hacerlo solo estaba de prueba)
 
         runSimulation(simulationDuration, replanOnNewOrder);
 
@@ -246,6 +250,7 @@ public class TabuSearchPlanner_MDVRP {
             visualizarSolucion(finalSolution);
         } else if (finalSolution != null && !finalSolution.unassignedParts.isEmpty()) {
             System.out.println(" T_T No se pudieron asignar todas las partes. Sin asignar: " + finalSolution.unassignedParts.size());
+            visualizarSolucion(finalSolution);
         } else {
             System.out.println(" T_T No hay solución final generada o rutas para visualizar.");
         }
@@ -417,12 +422,11 @@ public class TabuSearchPlanner_MDVRP {
                         }
                         // Recarga de combustible en Home Depot
                         if(ts.currentLocation.equals(ts.truck.homeDepot)) {
-                            if(ts.currentFuelGal < MAX_FUEL_GAL) {
+                            if (ts.currentFuelGal < MAX_FUEL_GAL) {
                                 // System.out.println("  Truck " + ts.truck.id + " recargando combustible.");
                                 ts.currentFuelGal = MAX_FUEL_GAL;
                             }
                         }
-                        // FALTA: Lógica de recarga en tanque intermedio (pendiente)
                     }
                     break;
 
@@ -467,14 +471,10 @@ public class TabuSearchPlanner_MDVRP {
                         System.out.println("  Truck " + ts.truck.id + " iniciando descarga...");
                         ts.status = TruckState.Status.DISCHARGING;
                         ts.timeAvailable = minute + DISCHARGE_TIME_MINUTES;
-                    } else if (ts.destination instanceof Depot) {
+                    } else if (ts.destination instanceof Depot) {   // Recarga
                         System.out.println("  Truck " + ts.truck.id + " llegó a Depot " + ((Depot)ts.destination).id);
-                        if (((Depot)ts.destination).isMainPlant()) {
-                            ts.currentFuelGal = MAX_FUEL_GAL;
-                            System.out.println("  Truck " + ts.truck.id + " combustible recargado en Planta.");
-                        }
-                        // FALTA: Lógica de recarga en tanque intermedio (pendiente)
-
+                        ts.currentFuelGal = MAX_FUEL_GAL;
+                        System.out.println("  Truck " + ts.truck.id + " combustible recargado en Planta.");
                         ts.currentRoutePlan.remove(0);
                         if (ts.currentRoutePlan.isEmpty()) {
                             System.out.println("  Truck " + ts.truck.id + " completó ruta. IDLE.");
@@ -581,6 +581,7 @@ public class TabuSearchPlanner_MDVRP {
                 actionPlan.add(route.endDepot);
 
                 ts.currentRoutePlan = actionPlan;
+                ts.routes.add(route);
                 assignedTrucks.add(ts.truck.id);
                 System.out.println("  Ruta asignada a " + ts.truck.id + " (#Clientes: " + route.sequence.size() + ")");
             } else if (ts != null && ts.status != TruckState.Status.IDLE) {
@@ -786,6 +787,7 @@ public class TabuSearchPlanner_MDVRP {
         System.out.println("  Costo Operacional (Rutas Factibles): " + formatCost(bestSolution.operationalFuelCost));
         System.out.println("  Totalmente Factible: " + bestSolution.fullyFeasible);
         System.out.println("  Clientes Sin Asignar: " + bestSolution.unassignedParts.size());
+        bestSolution.unassignedParts.forEach(p -> System.out.println("Ruta sin asignar: " + p.originalOrderId));
         System.out.println("  Rutas (" + bestSolution.routes.size() + "):");
         bestSolution.routes.forEach(r -> System.out.println("    " + r + " | Costo: " + formatCost(r.cost) + " | Fuel: " + String.format("%.2f", r.estimatedFuel) + " Gal | Feasible: " + r.feasible));
 
@@ -1073,8 +1075,100 @@ public class TabuSearchPlanner_MDVRP {
 
     static void visualizarSolucion(PlanningSolution solution) {
         System.out.println("Preparando visualización...");
-        if (solution == null) {
-            System.out.println("No hay solución para visualizar.");
+
+        System.out.println("Preparando visualización final del estado de los camiones...");
+
+        List<GridVisualizer_MDVRP.Punto> cliVis_temp = new ArrayList<>();
+        List<GridVisualizer_MDVRP.RutaVisual> rutVis_temp = new ArrayList<>();
+        Set<Integer> uniquePartIdsInRoutes = new HashSet<>(); // Para evitar duplicar puntos de cliente
+
+        Color[] C = {Color.BLUE, Color.RED, Color.ORANGE, Color.MAGENTA, Color.PINK, Color.YELLOW.darker(), Color.CYAN, Color.GRAY, Color.GREEN.darker().darker(), Color.BLUE.darker(), Color.RED.darker(), Color.ORANGE.darker()};
+        int ci = 0;
+
+        // Iterar por TODOS los estados de camión para obtener su última ruta
+        for (TruckState ts : truckStates.values()) {
+            for(PlannedRoute route : ts.routes) {
+                // Solo visualizar si la ruta existe, tiene secuencia y no está vacía
+                if (route != null && route.sequence != null && !route.sequence.isEmpty() && route.startDepot != null && route.endDepot != null) {
+                    List<GridVisualizer_MDVRP.Punto> seq = new ArrayList<>();
+                    // Punto inicial (Depot)
+                    seq.add(new GridVisualizer_MDVRP.Punto(route.startDepot.x, route.startDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.startDepot.id));
+                    // Puntos intermedios (Clientes)
+                    route.sequence.forEach(part -> {
+                        seq.add(new GridVisualizer_MDVRP.Punto(part.x, part.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(part.partId)));
+                        uniquePartIdsInRoutes.add(part.partId); // Registrar ID para la lista de clientes
+                    });
+                    // Punto final (Depot)
+                    seq.add(new GridVisualizer_MDVRP.Punto(route.endDepot.x, route.endDepot.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, route.endDepot.id));
+
+                    Color clr = C[ci % C.length]; ci++;
+                    rutVis_temp.add(new GridVisualizer_MDVRP.RutaVisual(route.truck.id, seq, clr));
+                } else {
+                    // Opcional: Podrías querer mostrar camiones IDLE en su depot
+                    // System.out.println("INFO: Camión " + ts.truck.id + " sin ruta activa/asignada para visualizar.");
+                }
+            }
+        }
+
+        // Crear la lista de puntos de cliente únicos a partir de los IDs recolectados
+        // Necesitamos encontrar los objetos CustomerPart correspondientes (asumiendo que siguen en alguna lista o podemos buscarlos)
+        // Si `activeCustomerParts` se vacía al servir, necesitaremos otra fuente.
+        // Asumamos por ahora que podemos reconstruir/encontrar los CustomerPart por ID si es necesario,
+        // o que la `solution` final (si existe) tiene los `unassignedParts`.
+        // UNA FORMA MÁS ROBUSTA: Buscar en la lista original de pedidos o una copia.
+        // O MÁS SIMPLE: Crear los puntos directamente de las rutas (puede haber redundancia si no usamos Set<Punto>)
+
+        // Vamos a construir cliVis_temp directamente de las partes en las rutas visualizadas
+        Map<Integer, CustomerPart> allPartsEver = new HashMap<>(); // Necesitaríamos poblar esto al crear las partes
+        // Asumiendo que tenemos acceso a las partes:
+        // cliVis_temp = uniquePartIdsInRoutes.stream()
+        //           .map(partId -> findCustomerPartById(partId)) // Necesitaríamos esta función
+        //           .filter(Objects::nonNull)
+        //           .map(part -> new GridVisualizer_MDVRP.Punto(
+        //                   part.x, part.y, GridVisualizer_MDVRP.PuntoTipo.CLIENTE, String.valueOf(part.partId)))
+        //           .collect(Collectors.toList());
+
+        // Alternativa más simple (puede duplicar localizaciones si varios partId están en el mismo x,y):
+        cliVis_temp = rutVis_temp.stream()
+                .flatMap(rutaVisual -> rutaVisual.secuenciaCompleta.stream()) // Obtener todos los puntos de todas las rutas
+                .filter(punto -> punto.tipo == GridVisualizer_MDVRP.PuntoTipo.CLIENTE) // Filtrar solo los clientes
+                .distinct() // Eliminar duplicados exactos (mismo objeto Punto)
+                .collect(Collectors.toList());
+
+
+        // Depósitos (sin cambios)
+        List<GridVisualizer_MDVRP.Punto> depVis_temp = depots.stream()
+                .map(d -> new GridVisualizer_MDVRP.Punto(d.x, d.y, GridVisualizer_MDVRP.PuntoTipo.DEPOSITO, d.id))
+                .collect(Collectors.toList());
+
+        final List<GridVisualizer_MDVRP.Punto> finalDepVis = depVis_temp;
+        final List<GridVisualizer_MDVRP.Punto> finalCliVis = cliVis_temp; // Usar la lista derivada
+        final List<GridVisualizer_MDVRP.RutaVisual> finalRutVis = rutVis_temp; // Usar la lista construida
+
+        if (finalRutVis.isEmpty()) {
+            System.out.println("Visualizador: No hay rutas asignadas/activas en los camiones para mostrar.");
+            // Decidir si mostrar el panel vacío o no hacer nada
+            // return; // Salir si no hay nada que mostrar?
+        } else {
+            System.out.println("Visualizador: Mostrando " + finalRutVis.size() + " rutas activas/últimas asignadas.");
+        }
+
+
+        SwingUtilities.invokeLater(() -> {
+            JFrame f = new JFrame("Visualización GLP - Rutas MDVRP (TS) - Estado Final Camiones");
+            f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            // Asegurarse que blockedNodes está actualizado al estado final de la simulación
+            GridVisualizer_MDVRP p = new GridVisualizer_MDVRP(finalDepVis, finalCliVis, finalRutVis, blockedNodes);
+            p.setPreferredSize(new Dimension(GRID_WIDTH * 12 + 50, GRID_HEIGHT * 12 + 50));
+            JScrollPane sp = new JScrollPane(p);
+            f.add(sp);
+            f.setSize(900, 700);
+            f.setLocationRelativeTo(null);
+            f.setVisible(true);
+        });
+
+        /*if (solution == null) {
+            System.out.println("Se mostrará ");
             return;
         }
 
@@ -1129,7 +1223,7 @@ public class TabuSearchPlanner_MDVRP {
             f.setSize(900, 700);
             f.setLocationRelativeTo(null);
             f.setVisible(true);
-        });
+        });*/
     }
 
     static String formatTime(int totalMinutes) {

@@ -8,4 +8,5 @@ public class RouteEvaluationResult {
     public int hypotheticalReloads = 0;
     public double penaltyCost = 0;
     public int extraTimeFromReloads = 0;
+    public int totalTimeSlackMinutes = 0;
 }

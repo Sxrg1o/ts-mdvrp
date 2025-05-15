@@ -13,6 +13,7 @@ public class PlannedRoute {
     public double cost = Double.POSITIVE_INFINITY;
     public boolean feasible = false;
     public double estimatedFuel = Double.POSITIVE_INFINITY;
+    public int routeTimeSlackMinutes = 0; // Nuevo campo
 
     public PlannedRoute(Truck t, Depot d) {
         truck = t; startDepot = d; endDepot = d;
@@ -26,6 +27,7 @@ public class PlannedRoute {
         this.cost = other.cost;
         this.feasible = other.feasible;
         this.estimatedFuel = other.estimatedFuel;
+        this.routeTimeSlackMinutes = other.routeTimeSlackMinutes; // Copiar nuevo campo
     }
 
     @Override public String toString() {

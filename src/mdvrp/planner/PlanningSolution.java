@@ -13,6 +13,7 @@ public class PlanningSolution {
     public double totalCost = Double.POSITIVE_INFINITY;
     public boolean fullyFeasible = false;
     public double operationalFuelCost = 0.0;
+    public int totalSolutionTimeSlackMinutes = 0; // Nuevo campo
 
     public PlanningSolution() {}
     public PlanningSolution(PlanningSolution other) {
@@ -24,5 +25,6 @@ public class PlanningSolution {
         this.totalCost = other.totalCost;
         this.fullyFeasible = other.fullyFeasible;
         this.operationalFuelCost = other.operationalFuelCost;
+        this.totalSolutionTimeSlackMinutes = other.totalSolutionTimeSlackMinutes; // Copiar nuevo campo
     }
 }
